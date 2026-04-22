@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	applogger "project-template/pkg/logger"
+	applogger "auth-service/pkg/logger"
 
 	"go.uber.org/zap"
 )

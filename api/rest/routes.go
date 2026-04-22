@@ -3,10 +3,10 @@ package rest
 import (
 	"net/http"
 
-	"project-template/internal/order"
-	"project-template/internal/usecase/checkout"
-	"project-template/internal/user"
-	applogger "project-template/pkg/logger"
+	"auth-service/internal/order"
+	"auth-service/internal/usecase/checkout"
+	"auth-service/internal/user"
+	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,23 +24,12 @@ func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
 	})
 
 	userHandler := NewUserHandler(deps.UserService, deps.Logger.Named("user-handler"))
-	orderHandler := NewOrderHandler(deps.OrderService, deps.Logger.Named("order-handler"))
-	checkoutHandler := NewCheckoutHandler(deps.CheckoutService, deps.Logger.Named("checkout-handler"))
 
 	v1 := engine.Group("/api/v1")
 
 	users := v1.Group("/users")
 	users.POST("/login", userHandler.Login)
 	users.GET("/:id", userHandler.GetByID)
-
-	orders := v1.Group("/orders")
-	orders.POST("", orderHandler.Create)
-	orders.GET("", orderHandler.List)
-	orders.GET("/:id", orderHandler.GetByID)
-	orders.PUT("/:id", orderHandler.Update)
-	orders.DELETE("/:id", orderHandler.Delete)
-
-	v1.POST("/checkout", checkoutHandler.Checkout)
 }
 
 func respondJSON(c *gin.Context, status int, payload any) {
