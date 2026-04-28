@@ -25,6 +25,7 @@ func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
 
 	authRoutes := v1.Group("/auth")
 	authRoutes.POST("/google/login", authHandler.GoogleLogin)
+	authRoutes.POST("/refresh", authHandler.Refresh)
 	authRoutes.POST("/logout", authHandler.Logout)
 }
 

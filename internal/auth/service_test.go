@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -70,19 +71,58 @@ func (f *fakeTokens) Verify(ctx context.Context, token string) (TokenClaims, err
 
 type fakeRefreshTokens struct {
 	created map[int64][]string
+	byHash  map[string]struct {
+		userID    int64
+		expiresAt time.Time
+	}
 }
 
 func (f *fakeRefreshTokens) Create(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {
 	if f.created == nil {
 		f.created = map[int64][]string{}
 	}
+	if f.byHash == nil {
+		f.byHash = map[string]struct {
+			userID    int64
+			expiresAt time.Time
+		}{}
+	}
 	f.created[userID] = append(f.created[userID], tokenHash)
+	f.byHash[tokenHash] = struct {
+		userID    int64
+		expiresAt time.Time
+	}{userID: userID, expiresAt: expiresAt}
 	return nil
 }
 
 func (f *fakeRefreshTokens) DeleteByUser(ctx context.Context, userID int64) error {
 	if f.created != nil {
 		delete(f.created, userID)
+	}
+	if f.byHash != nil {
+		for k, v := range f.byHash {
+			if v.userID == userID {
+				delete(f.byHash, k)
+			}
+		}
+	}
+	return nil
+}
+
+func (f *fakeRefreshTokens) GetByHash(ctx context.Context, tokenHash string) (int64, time.Time, error) {
+	if f.byHash == nil {
+		return 0, time.Time{}, errors.New("not found")
+	}
+	v, ok := f.byHash[tokenHash]
+	if !ok {
+		return 0, time.Time{}, errors.New("not found")
+	}
+	return v.userID, v.expiresAt, nil
+}
+
+func (f *fakeRefreshTokens) DeleteByHash(ctx context.Context, tokenHash string) error {
+	if f.byHash != nil {
+		delete(f.byHash, tokenHash)
 	}
 	return nil
 }
@@ -107,6 +147,35 @@ func (f *fakeBlacklist) IsRevoked(ctx context.Context, tokenID string) (bool, er
 	return ok, nil
 }
 
+type fakeRefreshIssuer struct {
+	issued map[string]RefreshTokenClaims
+	kid    string
+}
+
+func (f *fakeRefreshIssuer) KeyID() string { return f.kid }
+
+func (f *fakeRefreshIssuer) Issue(ctx context.Context, claims RefreshTokenClaims) (string, error) {
+	_ = ctx
+	if f.issued == nil {
+		f.issued = map[string]RefreshTokenClaims{}
+	}
+	if f.kid == "" {
+		f.kid = "test-kid"
+	}
+	token := "rt:" + claims.ID
+	f.issued[token] = claims
+	return token, nil
+}
+
+func (f *fakeRefreshIssuer) Verify(ctx context.Context, token string) (RefreshTokenClaims, error) {
+	_ = ctx
+	claims, ok := f.issued[token]
+	if !ok {
+		return RefreshTokenClaims{}, errors.New("bad refresh token")
+	}
+	return claims, nil
+}
+
 func TestService_LoginLogoutAuthenticate(t *testing.T) {
 	ctx := context.Background()
 
@@ -114,9 +183,10 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 	verifier := fakeVerifier{subject: "google-sub-1", profile: ExternalProfile{Email: "a@example.com", Name: "A"}}
 	tokens := &fakeTokens{}
 	refreshTokens := &fakeRefreshTokens{}
+	refreshIssuer := &fakeRefreshIssuer{}
 	blacklist := &fakeBlacklist{}
 
-	svc := NewService(users, refreshTokens, verifier, tokens, blacklist, 5*time.Minute, 24*time.Hour)
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, blacklist, 5*time.Minute, 24*time.Hour)
 
 	res, err := svc.LoginWithGoogle(ctx, "id-token")
 	if err != nil {
@@ -134,7 +204,7 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 		t.Fatalf("Authenticate err = %v", err)
 	}
 	if claims.UserID != res.User.ID {
-		t.Fatalf("Authenticate UserID mismatch: got=%q want=%q", claims.UserID, res.User.ID)
+		t.Fatalf("Authenticate UserID mismatch: got=%d want=%d", claims.UserID, res.User.ID)
 	}
 
 	if err := svc.Logout(ctx, res.AccessToken); err != nil {
@@ -148,9 +218,72 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 }
 
 func TestService_Login_InvalidCredential(t *testing.T) {
-	svc := NewService(&fakeUsers{}, &fakeRefreshTokens{}, fakeVerifier{err: errors.New("nope")}, &fakeTokens{}, &fakeBlacklist{}, time.Minute, time.Hour)
+	svc := NewService(&fakeUsers{}, &fakeRefreshTokens{}, fakeVerifier{err: errors.New("nope")}, &fakeTokens{}, &fakeRefreshIssuer{}, &fakeBlacklist{}, time.Minute, time.Hour)
 	_, err := svc.LoginWithGoogle(context.Background(), "token")
 	if !errors.Is(err, ErrInvalidCredential) {
 		t.Fatalf("err = %v, want ErrInvalidCredential", err)
+	}
+}
+
+func TestService_Refresh_RotatesToken(t *testing.T) {
+	ctx := context.Background()
+
+	users := &fakeUsers{}
+	verifier := fakeVerifier{subject: "google-sub-1", profile: ExternalProfile{Email: "a@example.com", Name: "A"}}
+	tokens := &fakeTokens{}
+	refreshTokens := &fakeRefreshTokens{}
+	refreshIssuer := &fakeRefreshIssuer{}
+
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, 5*time.Minute, 24*time.Hour)
+
+	loginRes, err := svc.LoginWithGoogle(ctx, "id-token")
+	if err != nil {
+		t.Fatalf("LoginWithGoogle err = %v", err)
+	}
+
+	refRes, err := svc.Refresh(ctx, loginRes.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh err = %v", err)
+	}
+	if refRes.AccessToken == "" || refRes.RefreshToken == "" {
+		t.Fatalf("Refresh result incomplete: %+v", refRes)
+	}
+	if refRes.RefreshToken == loginRes.RefreshToken {
+		t.Fatalf("Refresh token not rotated")
+	}
+
+	// Old refresh token should no longer work.
+	if _, err := svc.Refresh(ctx, loginRes.RefreshToken); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Refresh with old token err=%v want ErrUnauthorized", err)
+	}
+}
+
+func TestService_Refresh_ChecksTokenVersion(t *testing.T) {
+	ctx := context.Background()
+
+	users := &fakeUsers{}
+	verifier := fakeVerifier{subject: "google-sub-1", profile: ExternalProfile{Email: "a@example.com", Name: "A"}}
+	tokens := &fakeTokens{}
+	refreshTokens := &fakeRefreshTokens{}
+	refreshIssuer := &fakeRefreshIssuer{}
+
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, 5*time.Minute, 24*time.Hour)
+
+	loginRes, err := svc.LoginWithGoogle(ctx, "id-token")
+	if err != nil {
+		t.Fatalf("LoginWithGoogle err = %v", err)
+	}
+
+	// Simulate global logout by bumping user's token_version; refresh should fail.
+	_ = users.IncrementTokenVersion(ctx, users.user.ID)
+
+	if _, err := svc.Refresh(ctx, loginRes.RefreshToken); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Refresh err=%v want ErrUnauthorized", err)
+	}
+
+	// Sanity: refresh token subject is a user id string.
+	sub := refreshIssuer.issued[loginRes.RefreshToken].Subject
+	if _, err := strconv.ParseInt(sub, 10, 64); err != nil {
+		t.Fatalf("refresh subject not int64: %q", sub)
 	}
 }

@@ -38,6 +38,12 @@ type TokenIssuer interface {
 	Verify(ctx context.Context, token string) (TokenClaims, error)
 }
 
+type RefreshTokenIssuer interface {
+	Issue(ctx context.Context, claims RefreshTokenClaims) (string, error)
+	Verify(ctx context.Context, token string) (RefreshTokenClaims, error)
+	KeyID() string
+}
+
 // BlacklistStore stores revoked tokens until their expiry.
 type BlacklistStore interface {
 	Revoke(ctx context.Context, tokenID string, expiresAt time.Time) error
@@ -47,4 +53,6 @@ type BlacklistStore interface {
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error
 	DeleteByUser(ctx context.Context, userID int64) error
+	GetByHash(ctx context.Context, tokenHash string) (userID int64, expiresAt time.Time, err error)
+	DeleteByHash(ctx context.Context, tokenHash string) error
 }

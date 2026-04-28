@@ -201,5 +201,26 @@ func (r *PostgresRepository) DeleteByUser(ctx context.Context, userID int64) err
 	return r.db.WithContext(ctx).Delete(&pgRefreshToken{}, "user_id = ?", userID).Error
 }
 
+func (r *PostgresRepository) GetByHash(ctx context.Context, tokenHash string) (int64, time.Time, error) {
+	tokenHash = strings.TrimSpace(tokenHash)
+	if tokenHash == "" {
+		return 0, time.Time{}, errors.New("token_hash is required")
+	}
+
+	var row pgRefreshToken
+	if err := r.db.WithContext(ctx).First(&row, "token_hash = ?", tokenHash).Error; err != nil {
+		return 0, time.Time{}, err
+	}
+	return row.UserID, time.UnixMilli(row.ExpiresAt).UTC(), nil
+}
+
+func (r *PostgresRepository) DeleteByHash(ctx context.Context, tokenHash string) error {
+	tokenHash = strings.TrimSpace(tokenHash)
+	if tokenHash == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Delete(&pgRefreshToken{}, "token_hash = ?", tokenHash).Error
+}
+
 var _ auth.UserRepository = (*PostgresRepository)(nil)
 var _ auth.RefreshTokenRepository = (*PostgresRepository)(nil)

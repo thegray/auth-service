@@ -52,7 +52,11 @@ func runServer(ctx context.Context) error {
 
 	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID)
 	googleVerifier := authrepo.NewGoogleVerifier(cfg.GoogleClientID)
-	accessIssuer, err := authtoken.NewPasetoV4PublicIssuer(cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
+	accessIssuer, err := authtoken.NewPasetoV4PublicAccessKIDIssuer(cfg.AccessTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
+	if err != nil {
+		return err
+	}
+	refreshIssuer, err := authtoken.NewPasetoV4PublicKIDIssuer(cfg.RefreshTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
 	if err != nil {
 		return err
 	}
@@ -62,6 +66,7 @@ func runServer(ctx context.Context) error {
 		authRepository,
 		googleVerifier,
 		accessIssuer,
+		refreshIssuer,
 		nil,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,

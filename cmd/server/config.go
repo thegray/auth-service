@@ -13,10 +13,14 @@ const (
 	envAccessTTLMinutes   = "ACCESS_TOKEN_TTL_MINUTES"
 	envRefreshTTLDays     = "REFRESH_TOKEN_TTL_DAYS"
 	envMachineID          = "MACHINE_ID"
+	envAccessTokenKID     = "ACCESS_TOKEN_KID"
+	envRefreshTokenKID    = "REFRESH_TOKEN_KID"
 
 	defaultAccessTTLMinutes = 15
 	defaultRefreshTTLDays   = 30
 	defaultMachineID        = 0
+	defaultRefreshTokenKID  = "refresh-v1"
+	defaultAccessTokenKID   = "access-v1"
 
 	// Must match reservedBits in pkg/idgenerator.
 	maxMachineID = 3
@@ -41,6 +45,8 @@ type config struct {
 	AccessTokenTTL     time.Duration
 	RefreshTokenTTL    time.Duration
 	MachineID          int64
+	AccessTokenKID     string
+	RefreshTokenKID    string
 }
 
 func loadConfig() config {
@@ -50,6 +56,8 @@ func loadConfig() config {
 	if machineID < 0 || machineID > maxMachineID {
 		machineID = defaultMachineID
 	}
+	accessTokenKID := getEnv(envAccessTokenKID, defaultAccessTokenKID)
+	refreshTokenKID := getEnv(envRefreshTokenKID, defaultRefreshTokenKID)
 
 	return config{
 		ServerHost:         getEnv("SERVER_HOST", "0.0.0.0"),
@@ -70,6 +78,8 @@ func loadConfig() config {
 		AccessTokenTTL:     time.Duration(accessTTLMinutes) * time.Minute,
 		RefreshTokenTTL:    time.Duration(refreshTTLDays) * 24 * time.Hour,
 		MachineID:          machineID,
+		AccessTokenKID:     accessTokenKID,
+		RefreshTokenKID:    refreshTokenKID,
 	}
 }
 

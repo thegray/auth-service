@@ -19,3 +19,15 @@ type authUserResponse struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 }
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type refreshResponse struct {
+	TokenType    string           `json:"token_type"`
+	AccessToken  string           `json:"access_token"`
+	RefreshToken string           `json:"refresh_token"`
+	ExpiresAt    time.Time        `json:"expires_at"`
+	User         authUserResponse `json:"user"`
+}

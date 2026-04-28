@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,7 @@ type Service struct {
 	refreshTokens  RefreshTokenRepository
 	googleVerifier GoogleIDTokenVerifier
 	tokens         TokenIssuer
+	refreshIssuer  RefreshTokenIssuer
 	blacklist      BlacklistStore
 	clock          Clock
 	ttl            time.Duration
@@ -37,7 +40,7 @@ type serviceClock struct{}
 
 func (serviceClock) Now() time.Time { return time.Now() }
 
-func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, blacklist BlacklistStore, ttl, refreshTTL time.Duration) *Service {
+func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, ttl, refreshTTL time.Duration) *Service {
 	if ttl <= 0 {
 		ttl = defaultAccessTTL
 	}
@@ -51,6 +54,7 @@ func NewService(users UserRepository, refreshTokens RefreshTokenRepository, goog
 		refreshTokens:  refreshTokens,
 		googleVerifier: googleVerifier,
 		tokens:         tokens,
+		refreshIssuer:  refreshIssuer,
 		blacklist:      blacklist,
 		clock:          clock,
 		ttl:            ttl,
@@ -82,7 +86,6 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 		TokenID:         uuid.NewString(),
 		UserID:          user.ID,
 		Email:           user.Email,
-		TokenVersion:    user.TokenVersion,
 		IssuedAt:        now,
 		ExpiresAt:       now.Add(s.ttl),
 		Provider:        ProviderGoogle,
@@ -94,10 +97,25 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 		return LoginResult{}, err
 	}
 
-	refreshToken := uuid.NewString()
-	if s.refreshTokens != nil {
+	refreshToken := ""
+	if s.refreshTokens != nil && s.refreshIssuer != nil {
+		refreshClaims := RefreshTokenClaims{
+			ID:        uuid.NewString(),
+			Subject:   fmt.Sprintf("%d", user.ID),
+			Version:   user.TokenVersion,
+			Type:      "refresh",
+			IssuedAt:  now,
+			ExpiresAt: now.Add(s.refreshTTL),
+		}
+
+		issued, err := s.refreshIssuer.Issue(ctx, refreshClaims)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		refreshToken = issued
+
 		refreshHash := hashToken(refreshToken)
-		if err := s.refreshTokens.Create(ctx, user.ID, refreshHash, now.Add(s.refreshTTL)); err != nil {
+		if err := s.refreshTokens.Create(ctx, user.ID, refreshHash, refreshClaims.ExpiresAt); err != nil {
 			return LoginResult{}, err
 		}
 	}
@@ -129,15 +147,6 @@ func (s *Service) Authenticate(ctx context.Context, token string) (TokenClaims, 
 		if revoked {
 			return TokenClaims{}, ErrTokenRevoked
 		}
-	}
-
-	// Global revocation via token_version in users table.
-	user, err := s.users.GetByID(ctx, claims.UserID)
-	if err != nil {
-		return TokenClaims{}, ErrUnauthorized
-	}
-	if user.TokenVersion != claims.TokenVersion {
-		return TokenClaims{}, ErrUnauthorized
 	}
 
 	return claims, nil
@@ -172,4 +181,92 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// Refresh exchanges a valid refresh token for a new access token and a rotated refresh token.
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult, error) {
+	if s.refreshTokens == nil || s.refreshIssuer == nil {
+		return LoginResult{}, ErrUnauthorized
+	}
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	now := s.clock.Now().UTC()
+	refreshClaims, err := s.refreshIssuer.Verify(ctx, refreshToken)
+	if err != nil {
+		return LoginResult{}, ErrUnauthorized
+	}
+	if !refreshClaims.ExpiresAt.IsZero() && now.After(refreshClaims.ExpiresAt) {
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	userID, err := strconv.ParseInt(strings.TrimSpace(refreshClaims.Subject), 10, 64)
+	if err != nil || userID <= 0 {
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	oldHash := hashToken(refreshToken)
+	dbUserID, expiresAt, err := s.refreshTokens.GetByHash(ctx, oldHash)
+	if err != nil || dbUserID != userID {
+		return LoginResult{}, ErrUnauthorized
+	}
+	if !expiresAt.IsZero() && now.After(expiresAt) {
+		_ = s.refreshTokens.DeleteByHash(ctx, oldHash)
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	// token_version check happens on refresh token, not access token.
+	if refreshClaims.Version != user.TokenVersion {
+		_ = s.refreshTokens.DeleteByHash(ctx, oldHash)
+		return LoginResult{}, ErrUnauthorized
+	}
+
+	claims := TokenClaims{
+		TokenID:   uuid.NewString(),
+		UserID:    user.ID,
+		Email:     user.Email,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(s.ttl),
+	}
+
+	accessToken, err := s.tokens.Issue(ctx, claims)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	// Rotate refresh token: delete old hash and insert new token.
+	newRefreshClaims := RefreshTokenClaims{
+		ID:        uuid.NewString(),
+		Subject:   fmt.Sprintf("%d", user.ID),
+		Version:   user.TokenVersion,
+		Type:      "refresh",
+		IssuedAt:  now,
+		ExpiresAt: now.Add(s.refreshTTL),
+	}
+	newRefreshToken, err := s.refreshIssuer.Issue(ctx, newRefreshClaims)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	newHash := hashToken(newRefreshToken)
+
+	if err := s.refreshTokens.DeleteByHash(ctx, oldHash); err != nil {
+		return LoginResult{}, err
+	}
+	if err := s.refreshTokens.Create(ctx, user.ID, newHash, newRefreshClaims.ExpiresAt); err != nil {
+		return LoginResult{}, err
+	}
+
+	return LoginResult{
+		AccessToken:  accessToken,
+		RefreshToken: newRefreshToken,
+		User:         user,
+		ExpiresAt:    claims.ExpiresAt,
+	}, nil
 }

@@ -24,11 +24,19 @@ type TokenClaims struct {
 	TokenID         string
 	UserID          int64
 	Email           string
-	TokenVersion    int
 	IssuedAt        time.Time
 	ExpiresAt       time.Time
 	Provider        Provider
 	ProviderSubject string
+}
+
+type RefreshTokenClaims struct {
+	ID        string    `json:"jti"` // Unique Token ID
+	Subject   string    `json:"sub"` // User ID
+	Version   int       `json:"v"`   // Current token_version
+	Type      string    `json:"typ"` // Always "refresh"
+	IssuedAt  time.Time `json:"iat"`
+	ExpiresAt time.Time `json:"exp"`
 }
 
 type LoginResult struct {

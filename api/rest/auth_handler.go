@@ -75,3 +75,44 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	respondError(c, http.StatusNotImplemented, "not implemented")
 }
+
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	if h.auth == nil {
+		respondError(c, http.StatusInternalServerError, errInternal)
+		return
+	}
+
+	var req refreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, errInvalidRequest)
+		return
+	}
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		respondError(c, http.StatusBadRequest, errInvalidRequest)
+		return
+	}
+
+	result, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		switch err {
+		case auth.ErrUnauthorized:
+			respondError(c, http.StatusUnauthorized, "unauthorized")
+		default:
+			h.log.ErrorCtx(c.Request.Context(), "refresh failed", zap.Error(err))
+			respondError(c, http.StatusInternalServerError, errInternal)
+		}
+		return
+	}
+
+	respondJSON(c, http.StatusOK, refreshResponse{
+		TokenType:    tokenTypeBearer,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresAt:    result.ExpiresAt,
+		User: authUserResponse{
+			ID:          result.User.ID,
+			Email:       result.User.Email,
+			DisplayName: result.User.Name,
+		},
+	})
+}
