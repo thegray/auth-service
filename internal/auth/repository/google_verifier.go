@@ -21,7 +21,6 @@ const (
 var ErrInvalidIDToken = errors.New("invalid google id token")
 
 // GoogleVerifier validates Google ID tokens and extracts the subject + basic profile.
-// It lives in this repository layer to match the structure concept (external integrations alongside DB/Redis).
 type GoogleVerifier struct {
 	audience string
 }

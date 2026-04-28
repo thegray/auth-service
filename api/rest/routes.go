@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"time"
 
 	"auth-service/internal/auth"
 	applogger "auth-service/pkg/logger"
@@ -9,12 +10,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	pathPasetoKeys = "/.well-known/paseto-keys.json"
+)
+
 type Dependencies struct {
-	AuthService *auth.Service
-	Logger      *applogger.Logger
+	AuthService           *auth.Service
+	Logger                *applogger.Logger
+	PasetoPublicKeyBase64 string
+	PasetoPublicKeyIAT    time.Time
+	AccessTokenKID        string
+	RefreshTokenKID       string
 }
 
 func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
+	keysHandler := NewPasetoKeysHandler(
+		deps.PasetoPublicKeyBase64,
+		deps.PasetoPublicKeyIAT,
+		[]string{deps.AccessTokenKID, deps.RefreshTokenKID},
+	)
+	engine.GET(pathPasetoKeys, keysHandler.Get)
+
 	engine.GET("/healthcheck", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

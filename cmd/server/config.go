@@ -15,6 +15,7 @@ const (
 	envMachineID          = "MACHINE_ID"
 	envAccessTokenKID     = "ACCESS_TOKEN_KID"
 	envRefreshTokenKID    = "REFRESH_TOKEN_KID"
+	envPasetoPublicKeyIAT = "PASETO_PUBLIC_KEY_IAT"
 
 	defaultAccessTTLMinutes = 15
 	defaultRefreshTTLDays   = 30
@@ -47,6 +48,7 @@ type config struct {
 	MachineID          int64
 	AccessTokenKID     string
 	RefreshTokenKID    string
+	PasetoPublicKeyIAT time.Time
 }
 
 func loadConfig() config {
@@ -58,6 +60,7 @@ func loadConfig() config {
 	}
 	accessTokenKID := getEnv(envAccessTokenKID, defaultAccessTokenKID)
 	refreshTokenKID := getEnv(envRefreshTokenKID, defaultRefreshTokenKID)
+	publicKeyIAT := getEnvTime(envPasetoPublicKeyIAT, time.Now().UTC())
 
 	return config{
 		ServerHost:         getEnv("SERVER_HOST", "0.0.0.0"),
@@ -80,6 +83,7 @@ func loadConfig() config {
 		MachineID:          machineID,
 		AccessTokenKID:     accessTokenKID,
 		RefreshTokenKID:    refreshTokenKID,
+		PasetoPublicKeyIAT: publicKeyIAT,
 	}
 }
 
@@ -128,4 +132,16 @@ func getEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvTime(key string, fallback time.Time) time.Time {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return fallback
+	}
+	return parsed.UTC()
 }

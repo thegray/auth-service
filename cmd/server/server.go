@@ -76,8 +76,12 @@ func runServer(ctx context.Context) error {
 	engine.Use(gin.Recovery())
 	engine.Use(applogger.GinMiddleware(appLogger.Named("http")))
 	rest.RegisterRoutes(engine, rest.Dependencies{
-		AuthService: authService,
-		Logger:      appLogger.Named("rest"),
+		AuthService:           authService,
+		Logger:                appLogger.Named("rest"),
+		PasetoPublicKeyBase64: cfg.PasetoV4PublicKey,
+		PasetoPublicKeyIAT:    cfg.PasetoPublicKeyIAT,
+		AccessTokenKID:        cfg.AccessTokenKID,
+		RefreshTokenKID:       cfg.RefreshTokenKID,
 	})
 
 	address := fmt.Sprintf("%s:%s", cfg.ServerHost, cfg.ServerPort)
