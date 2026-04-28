@@ -3,37 +3,73 @@ package main
 import (
 	"os"
 	"strconv"
+	"time"
+)
+
+const (
+	envGoogleClientID     = "GOOGLE_CLIENT_ID"
+	envPasetoV4PrivateKey = "PASETO_V4_PRIVATE_KEY"
+	envPasetoV4PublicKey  = "PASETO_V4_PUBLIC_KEY"
+	envAccessTTLMinutes   = "ACCESS_TOKEN_TTL_MINUTES"
+	envRefreshTTLDays     = "REFRESH_TOKEN_TTL_DAYS"
+	envMachineID          = "MACHINE_ID"
+
+	defaultAccessTTLMinutes = 15
+	defaultRefreshTTLDays   = 30
+	defaultMachineID        = 0
+
+	// Must match reservedBits in pkg/idgenerator.
+	maxMachineID = 3
 )
 
 type config struct {
-	ServerHost string
-	ServerPort string
-	LogEnv     string
-	DBHost     string
-	DBPort     string
-	DBName     string
-	DBUser     string
-	DBPassword string
-	DBSSLMode  string
-	MaxConns   int32
-	MinConns   int32
-	AppEnv     string
+	ServerHost         string
+	ServerPort         string
+	LogEnv             string
+	DBHost             string
+	DBPort             string
+	DBName             string
+	DBUser             string
+	DBPassword         string
+	DBSSLMode          string
+	MaxConns           int32
+	MinConns           int32
+	AppEnv             string
+	GoogleClientID     string
+	PasetoV4PrivateKey string
+	PasetoV4PublicKey  string
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
+	MachineID          int64
 }
 
 func loadConfig() config {
+	accessTTLMinutes := getEnvInt(envAccessTTLMinutes, defaultAccessTTLMinutes)
+	refreshTTLDays := getEnvInt(envRefreshTTLDays, defaultRefreshTTLDays)
+	machineID := getEnvInt64(envMachineID, defaultMachineID)
+	if machineID < 0 || machineID > maxMachineID {
+		machineID = defaultMachineID
+	}
+
 	return config{
-		ServerHost: getEnv("SERVER_HOST", "0.0.0.0"),
-		ServerPort: getEnv("SERVER_PORT", "8080"),
-		LogEnv:     getEnv("LOG_ENV", "production"),
-		DBHost:     getEnv("DB_HOST", "localhost"),
-		DBPort:     getEnv("DB_PORT", "5432"),
-		DBName:     getEnv("DB_NAME", "develop"),
-		DBUser:     getEnv("DB_USER", "postgres"),
-		DBPassword: getEnv("DB_PASSWORD", "postgres"),
-		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
-		MaxConns:   getEnvInt32("DB_MAX_CONNS", 10),
-		MinConns:   getEnvInt32("DB_MIN_CONNS", 1),
-		AppEnv:     getEnv("APP_ENV", "development"),
+		ServerHost:         getEnv("SERVER_HOST", "0.0.0.0"),
+		ServerPort:         getEnv("SERVER_PORT", "8080"),
+		LogEnv:             getEnv("LOG_ENV", "production"),
+		DBHost:             getEnv("DB_HOST", "localhost"),
+		DBPort:             getEnv("DB_PORT", "5432"),
+		DBName:             getEnv("DB_NAME", "develop"),
+		DBUser:             getEnv("DB_USER", "postgres"),
+		DBPassword:         getEnv("DB_PASSWORD", "postgres"),
+		DBSSLMode:          getEnv("DB_SSLMODE", "disable"),
+		MaxConns:           getEnvInt32("DB_MAX_CONNS", 10),
+		MinConns:           getEnvInt32("DB_MIN_CONNS", 1),
+		AppEnv:             getEnv("APP_ENV", "development"),
+		GoogleClientID:     getEnv(envGoogleClientID, ""),
+		PasetoV4PrivateKey: getEnv(envPasetoV4PrivateKey, ""),
+		PasetoV4PublicKey:  getEnv(envPasetoV4PublicKey, ""),
+		AccessTokenTTL:     time.Duration(accessTTLMinutes) * time.Minute,
+		RefreshTokenTTL:    time.Duration(refreshTTLDays) * 24 * time.Hour,
+		MachineID:          machineID,
 	}
 }
 
@@ -56,4 +92,30 @@ func getEnvInt32(key string, fallback int32) int32 {
 		return fallback
 	}
 	return int32(parsed)
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

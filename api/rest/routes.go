@@ -3,19 +3,15 @@ package rest
 import (
 	"net/http"
 
-	"auth-service/internal/order"
-	"auth-service/internal/usecase/checkout"
-	"auth-service/internal/user"
+	"auth-service/internal/auth"
 	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Dependencies struct {
-	UserService     *user.Service
-	OrderService    *order.Service
-	CheckoutService *checkout.Service
-	Logger          *applogger.Logger
+	AuthService *auth.Service
+	Logger      *applogger.Logger
 }
 
 func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
@@ -23,13 +19,13 @@ func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	userHandler := NewUserHandler(deps.UserService, deps.Logger.Named("user-handler"))
+	authHandler := NewAuthHandler(deps.AuthService, deps.Logger.Named("auth-handler"))
 
 	v1 := engine.Group("/api/v1")
 
-	users := v1.Group("/users")
-	users.POST("/login", userHandler.Login)
-	users.GET("/:id", userHandler.GetByID)
+	authRoutes := v1.Group("/auth")
+	authRoutes.POST("/google/login", authHandler.GoogleLogin)
+	authRoutes.POST("/logout", authHandler.Logout)
 }
 
 func respondJSON(c *gin.Context, status int, payload any) {

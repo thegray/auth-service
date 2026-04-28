@@ -11,13 +11,10 @@ import (
 	"time"
 
 	"auth-service/api/rest"
+	"auth-service/internal/auth"
+	authrepo "auth-service/internal/auth/repository"
+	authtoken "auth-service/internal/auth/token"
 	"auth-service/internal/infra"
-	"auth-service/internal/order"
-	orderrepo "auth-service/internal/order/repository"
-	"auth-service/internal/usecase/checkout"
-	"auth-service/internal/user"
-	userrepo "auth-service/internal/user/repository"
-	pkgcrypto "auth-service/pkg/crypto"
 	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -53,22 +50,29 @@ func runServer(ctx context.Context) error {
 		return err
 	}
 
-	userRepository := userrepo.New(db, appLogger.Named("user-db"))
-	orderRepository := orderrepo.New(db, appLogger.Named("order-db"))
-	passwordHasher := pkgcrypto.NewBcryptHasher(0)
+	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID)
+	googleVerifier := authrepo.NewGoogleVerifier(cfg.GoogleClientID)
+	accessIssuer, err := authtoken.NewPasetoV4PublicIssuer(cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
+	if err != nil {
+		return err
+	}
 
-	userService := user.NewService(userRepository, passwordHasher, appLogger.Named("user-service"))
-	orderService := order.NewService(orderRepository, appLogger.Named("order-service"))
-	checkoutService := checkout.NewService(userService, orderService, appLogger.Named("checkout-service"))
+	authService := auth.NewService(
+		authRepository,
+		authRepository,
+		googleVerifier,
+		accessIssuer,
+		nil,
+		cfg.AccessTokenTTL,
+		cfg.RefreshTokenTTL,
+	)
 
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 	engine.Use(applogger.GinMiddleware(appLogger.Named("http")))
 	rest.RegisterRoutes(engine, rest.Dependencies{
-		UserService:     userService,
-		OrderService:    orderService,
-		CheckoutService: checkoutService,
-		Logger:          appLogger.Named("rest"),
+		AuthService: authService,
+		Logger:      appLogger.Named("rest"),
 	})
 
 	address := fmt.Sprintf("%s:%s", cfg.ServerHost, cfg.ServerPort)
