@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,7 @@ const (
 	errInvalidCredential = "invalid credential"
 	errInternal          = "internal error"
 	tokenTypeBearer      = "Bearer"
+	errUnauthorized      = "unauthorized"
 )
 
 type AuthHandler struct {
@@ -48,13 +50,7 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 
 	result, err := h.auth.LoginWithGoogle(c.Request.Context(), req.IDToken)
 	if err != nil {
-		switch err {
-		case auth.ErrInvalidCredential:
-			respondError(c, http.StatusUnauthorized, errInvalidCredential)
-		default:
-			h.log.ErrorCtx(c.Request.Context(), "google login failed", zap.Error(err))
-			respondError(c, http.StatusInternalServerError, errInternal)
-		}
+		h.handleError(c, err, "google login failed")
 		return
 	}
 
@@ -94,13 +90,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 
 	result, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
 	if err != nil {
-		switch err {
-		case auth.ErrUnauthorized:
-			respondError(c, http.StatusUnauthorized, "unauthorized")
-		default:
-			h.log.ErrorCtx(c.Request.Context(), "refresh failed", zap.Error(err))
-			respondError(c, http.StatusInternalServerError, errInternal)
-		}
+		h.handleError(c, err, "refresh failed")
 		return
 	}
 
@@ -115,4 +105,19 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 			DisplayName: result.User.Name,
 		},
 	})
+}
+
+func (h *AuthHandler) handleError(c *gin.Context, err error, msg string) {
+	switch {
+	case errors.Is(err, auth.ErrInvalidCredential):
+		respondError(c, http.StatusUnauthorized, errInvalidCredential)
+	case errors.Is(err, auth.ErrUnauthorized),
+		errors.Is(err, auth.ErrTokenRevoked),
+		errors.Is(err, auth.ErrInvalidToken),
+		errors.Is(err, auth.ErrExpiredToken):
+		respondError(c, http.StatusUnauthorized, errUnauthorized)
+	default:
+		h.log.ErrorCtx(c.Request.Context(), msg, zap.Error(err))
+		respondError(c, http.StatusInternalServerError, errInternal)
+	}
 }
