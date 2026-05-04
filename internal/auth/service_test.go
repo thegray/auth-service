@@ -198,6 +198,7 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 	if tokens.issued.UserID != res.User.ID {
 		t.Fatalf("issued claims UserID mismatch: got=%d want=%d", tokens.issued.UserID, res.User.ID)
 	}
+	initialTokenVersion := users.user.TokenVersion
 
 	claims, err := svc.Authenticate(ctx, res.AccessToken)
 	if err != nil {
@@ -209,6 +210,12 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 
 	if err := svc.Logout(ctx, res.AccessToken); err != nil {
 		t.Fatalf("Logout err = %v", err)
+	}
+	if users.user.TokenVersion != initialTokenVersion+1 {
+		t.Fatalf("token_version not incremented: got=%d want=%d", users.user.TokenVersion, initialTokenVersion+1)
+	}
+	if _, ok := blacklist.revoked[tokens.issued.TokenID]; !ok {
+		t.Fatalf("access token not revoked")
 	}
 
 	_, err = svc.Authenticate(ctx, res.AccessToken)

@@ -153,6 +153,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (TokenClaims, 
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ErrUnauthorized
+	}
+
 	claims, err := s.tokens.Verify(ctx, token)
 	if err != nil {
 		return ErrUnauthorized
@@ -170,9 +175,10 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 		}
 	}
 
-	// Best-effort revoke of current access token.
 	if s.blacklist != nil && strings.TrimSpace(claims.TokenID) != "" {
-		_ = s.blacklist.Revoke(ctx, claims.TokenID, claims.ExpiresAt)
+		if err := s.blacklist.Revoke(ctx, claims.TokenID, claims.ExpiresAt); err != nil {
+			return err
+		}
 	}
 
 	return nil

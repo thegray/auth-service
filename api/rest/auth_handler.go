@@ -67,9 +67,24 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 	})
 }
 
-// Phase 1 handler stub: will be fully implemented after blacklist store is wired.
 func (h *AuthHandler) Logout(c *gin.Context) {
-	respondError(c, http.StatusNotImplemented, "not implemented")
+	if h.auth == nil {
+		respondError(c, http.StatusInternalServerError, errInternal)
+		return
+	}
+
+	token := bearerTokenFromHeader(c.GetHeader("Authorization"))
+	if token == "" {
+		respondError(c, http.StatusUnauthorized, errUnauthorized)
+		return
+	}
+
+	if err := h.auth.Logout(c.Request.Context(), token); err != nil {
+		h.handleError(c, err, "logout failed")
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
@@ -112,12 +127,24 @@ func (h *AuthHandler) handleError(c *gin.Context, err error, msg string) {
 	case errors.Is(err, auth.ErrInvalidCredential):
 		respondError(c, http.StatusUnauthorized, errInvalidCredential)
 	case errors.Is(err, auth.ErrUnauthorized),
-		errors.Is(err, auth.ErrTokenRevoked),
-		errors.Is(err, auth.ErrInvalidToken),
-		errors.Is(err, auth.ErrExpiredToken):
+		errors.Is(err, auth.ErrTokenRevoked):
 		respondError(c, http.StatusUnauthorized, errUnauthorized)
 	default:
 		h.log.ErrorCtx(c.Request.Context(), msg, zap.Error(err))
 		respondError(c, http.StatusInternalServerError, errInternal)
 	}
+}
+
+func bearerTokenFromHeader(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	const prefix = tokenTypeBearer + " "
+	if !strings.HasPrefix(value, prefix) {
+		return ""
+	}
+
+	return strings.TrimSpace(strings.TrimPrefix(value, prefix))
 }
