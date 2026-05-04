@@ -323,6 +323,27 @@ Important variables:
 - `DB_PASSWORD`
 - `DB_SSLMODE`
 
+### PASETO Key Generation
+Use the reusable generator in `pkg/keygenerator/` from application code, or run the standalone script entry point to print a fresh keypair:
+
+```powershell
+go run ./cmd/script
+```
+
+Optional output formats:
+
+```powershell
+go run ./cmd/script -format json
+go run ./cmd/script -format text
+```
+
+The default output is `.env`-friendly:
+
+```text
+PASETO_V4_PRIVATE_KEY=...
+PASETO_V4_PUBLIC_KEY=...
+```
+
 ### Demo User
 On first boot, the server seeds a demo user if it does not exist.
 
