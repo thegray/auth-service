@@ -2,111 +2,107 @@ package token
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/json"
-	"fmt"
 	"strings"
-	"time"
 
+	paseto "aidanwoods.dev/go-paseto"
 	"auth-service/internal/auth"
-
-	pasetov4 "zntr.io/paseto/v4"
 )
 
 type PasetoV4PublicAccessKIDIssuer struct {
-	kid     string
-	private ed25519.PrivateKey
-	public  ed25519.PublicKey
-}
-
-type accessPayload struct {
-	TokenID         string        `json:"jti"`
-	UserID          int64         `json:"user_id"`
-	Email           string        `json:"email"`
-	Provider        auth.Provider `json:"provider"`
-	ProviderSubject string        `json:"provider_subject"`
-	IssuedAt        time.Time     `json:"iat"`
-	ExpiresAt       time.Time     `json:"exp"`
+	kid    string
+	secret paseto.V4AsymmetricSecretKey
+	public paseto.V4AsymmetricPublicKey
+	parser paseto.Parser
 }
 
 func NewPasetoV4PublicAccessKIDIssuer(kid, privateKeyBase64, publicKeyBase64 string) (*PasetoV4PublicAccessKIDIssuer, error) {
 	kid = strings.TrimSpace(kid)
 	if kid == "" {
-		return nil, fmt.Errorf("%w: kid missing", ErrInvalidKey)
+		return nil, ErrInvalidKey
 	}
 
-	priv, err := decodeKey(privateKeyBase64, ed25519PrivateKeyLen)
+	secret, public, err := loadV4Keypair(privateKeyBase64, publicKeyBase64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: private", err)
-	}
-	pub, err := decodeKey(publicKeyBase64, ed25519PublicKeyLen)
-	if err != nil {
-		return nil, fmt.Errorf("%w: public", err)
+		return nil, err
 	}
 
-	private := ed25519.PrivateKey(priv)
-	public := ed25519.PublicKey(pub)
-	if !ed25519.PrivateKey(private).Public().(ed25519.PublicKey).Equal(public) {
-		return nil, fmt.Errorf("%w: keypair mismatch", ErrInvalidKey)
-	}
-
-	return &PasetoV4PublicAccessKIDIssuer{kid: kid, private: private, public: public}, nil
+	return &PasetoV4PublicAccessKIDIssuer{
+		kid:    kid,
+		secret: secret,
+		public: public,
+		parser: paseto.NewParserForValidNow(),
+	}, nil
 }
 
 func (i *PasetoV4PublicAccessKIDIssuer) Issue(ctx context.Context, claims auth.TokenClaims) (string, error) {
 	_ = ctx
 
-	payload := accessPayload{
-		TokenID:         strings.TrimSpace(claims.TokenID),
-		UserID:          claims.UserID,
-		Email:           strings.TrimSpace(claims.Email),
-		Provider:        claims.Provider,
-		ProviderSubject: strings.TrimSpace(claims.ProviderSubject),
-		IssuedAt:        claims.IssuedAt.UTC(),
-		ExpiresAt:       claims.ExpiresAt.UTC(),
-	}
+	token := paseto.NewToken()
+	token.SetJti(strings.TrimSpace(claims.TokenID))
+	token.SetIssuedAt(claims.IssuedAt.UTC())
+	token.SetExpiration(claims.ExpiresAt.UTC())
+	token.SetFooter([]byte(i.kid))
 
-	raw, err := json.Marshal(payload)
-	if err != nil {
+	if err := token.Set("user_id", claims.UserID); err != nil {
 		return "", err
 	}
+	token.SetString("email", strings.TrimSpace(claims.Email))
+	token.SetString("provider", string(claims.Provider))
+	token.SetString("provider_subject", strings.TrimSpace(claims.ProviderSubject))
 
-	footer := []byte(i.kid)
-	return pasetov4.Sign(raw, i.private, footer, nil)
+	return token.V4Sign(i.secret, nil), nil
 }
 
 func (i *PasetoV4PublicAccessKIDIssuer) Verify(ctx context.Context, token string) (auth.TokenClaims, error) {
 	_ = ctx
 
-	footer, err := extractFooter(token)
+	parsed, err := i.parser.ParseV4Public(i.public, token, nil)
 	if err != nil {
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
-	if i.kid != "" && string(footer) != i.kid {
+	if i.kid != "" && string(parsed.Footer()) != i.kid {
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
 
-	msg, err := pasetov4.Verify(token, i.public, footer, nil)
+	tokenID, err := parsed.GetJti()
+	if err != nil || strings.TrimSpace(tokenID) == "" {
+		return auth.TokenClaims{}, ErrInvalidToken
+	}
+
+	var userID int64
+	if err := parsed.Get("user_id", &userID); err != nil || userID <= 0 {
+		return auth.TokenClaims{}, ErrInvalidToken
+	}
+
+	email, err := parsed.GetString("email")
 	if err != nil {
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
-
-	var payload accessPayload
-	if err := json.Unmarshal(msg, &payload); err != nil {
+	provider, err := parsed.GetString("provider")
+	if err != nil {
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
-	if strings.TrimSpace(payload.TokenID) == "" || payload.UserID == 0 {
+	providerSubject, err := parsed.GetString("provider_subject")
+	if err != nil {
+		return auth.TokenClaims{}, ErrInvalidToken
+	}
+	issuedAt, err := parsed.GetIssuedAt()
+	if err != nil {
+		return auth.TokenClaims{}, ErrInvalidToken
+	}
+	expiresAt, err := parsed.GetExpiration()
+	if err != nil {
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
 
 	return auth.TokenClaims{
-		TokenID:         payload.TokenID,
-		UserID:          payload.UserID,
-		Email:           payload.Email,
-		IssuedAt:        payload.IssuedAt,
-		ExpiresAt:       payload.ExpiresAt,
-		Provider:        payload.Provider,
-		ProviderSubject: payload.ProviderSubject,
+		TokenID:         tokenID,
+		UserID:          userID,
+		Email:           strings.TrimSpace(email),
+		IssuedAt:        issuedAt.UTC(),
+		ExpiresAt:       expiresAt.UTC(),
+		Provider:        auth.Provider(strings.TrimSpace(provider)),
+		ProviderSubject: strings.TrimSpace(providerSubject),
 	}, nil
 }
 
