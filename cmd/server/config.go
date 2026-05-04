@@ -16,6 +16,10 @@ const (
 	envAccessTokenKID     = "ACCESS_TOKEN_KID"
 	envRefreshTokenKID    = "REFRESH_TOKEN_KID"
 	envPasetoPublicKeyIAT = "PASETO_PUBLIC_KEY_IAT"
+	envRedisHost          = "REDIS_HOST"
+	envRedisPort          = "REDIS_PORT"
+	envRedisPassword      = "REDIS_PASSWORD"
+	envRedisDB            = "REDIS_DB"
 
 	defaultAccessTTLMinutes = 15
 	defaultRefreshTTLDays   = 30
@@ -49,6 +53,10 @@ type config struct {
 	AccessTokenKID     string
 	RefreshTokenKID    string
 	PasetoPublicKeyIAT time.Time
+	RedisHost          string
+	RedisPort          string
+	RedisPassword      string
+	RedisDB            int
 }
 
 func loadConfig() config {
@@ -84,6 +92,10 @@ func loadConfig() config {
 		AccessTokenKID:     accessTokenKID,
 		RefreshTokenKID:    refreshTokenKID,
 		PasetoPublicKeyIAT: publicKeyIAT,
+		RedisHost:          getEnv(envRedisHost, "localhost"),
+		RedisPort:          getEnv(envRedisPort, "6379"),
+		RedisPassword:      getEnv(envRedisPassword, ""),
+		RedisDB:            getEnvInt(envRedisDB, 0),
 	}
 }
 

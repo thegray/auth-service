@@ -51,6 +51,20 @@ func runServer(ctx context.Context) error {
 	}
 
 	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID)
+	redisClient, err := infra.NewRedisClient(ctx, infra.RedisConfig{
+		Host:     cfg.RedisHost,
+		Port:     cfg.RedisPort,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = redisClient.Close()
+	}()
+
+	blacklist := authrepo.NewRedisBlacklist(redisClient, "")
 	googleVerifier := authrepo.NewGoogleVerifier(cfg.GoogleClientID)
 	accessIssuer, err := authtoken.NewPasetoV4PublicAccessKIDIssuer(cfg.AccessTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
 	if err != nil {
@@ -67,7 +81,7 @@ func runServer(ctx context.Context) error {
 		googleVerifier,
 		accessIssuer,
 		refreshIssuer,
-		nil,
+		blacklist,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,
 	)
