@@ -1,25 +1,28 @@
 package main
 
 import (
+	"auth-service/pkg/idgenerator"
 	"os"
 	"strconv"
 	"time"
 )
 
 const (
+	envRedisHost     = "REDIS_HOST"
+	envRedisPort     = "REDIS_PORT"
+	envRedisPassword = "REDIS_PASSWORD"
+	envRedisDB       = "REDIS_DB"
+
 	envGoogleClientID     = "GOOGLE_CLIENT_ID"
-	envPasetoV4PrivateKey = "PASETO_V4_PRIVATE_KEY"
-	envPasetoV4PublicKey  = "PASETO_V4_PUBLIC_KEY"
 	envAccessTTLMinutes   = "ACCESS_TOKEN_TTL_MINUTES"
 	envRefreshTTLDays     = "REFRESH_TOKEN_TTL_DAYS"
-	envMachineID          = "MACHINE_ID"
 	envAccessTokenKID     = "ACCESS_TOKEN_KID"
 	envRefreshTokenKID    = "REFRESH_TOKEN_KID"
 	envPasetoPublicKeyIAT = "PASETO_PUBLIC_KEY_IAT"
-	envRedisHost          = "REDIS_HOST"
-	envRedisPort          = "REDIS_PORT"
-	envRedisPassword      = "REDIS_PASSWORD"
-	envRedisDB            = "REDIS_DB"
+
+	envPasetoV4PrivateKey = "PASETO_V4_PRIVATE_KEY"
+	envPasetoV4PublicKey  = "PASETO_V4_PUBLIC_KEY"
+	envMachineID          = "MACHINE_ID"
 
 	defaultAccessTTLMinutes = 15
 	defaultRefreshTTLDays   = 30
@@ -27,43 +30,45 @@ const (
 	defaultRefreshTokenKID  = "refresh-v1"
 	defaultAccessTokenKID   = "access-v1"
 
-	// Must match reservedBits in pkg/idgenerator.
-	maxMachineID = 3
+	// maxMachineIDv1 is the maximum value that can fit in the ReservedBits.
+	maxMachineIDv1 = -1 ^ (-1 << idgenerator.ReservedBits)
 )
 
 type config struct {
-	ServerHost         string
-	ServerPort         string
-	LogEnv             string
-	DBHost             string
-	DBPort             string
-	DBName             string
-	DBUser             string
-	DBPassword         string
-	DBSSLMode          string
-	MaxConns           int32
-	MinConns           int32
-	AppEnv             string
+	ServerHost string
+	ServerPort string
+	LogEnv     string
+	AppEnv     string
+
+	DBHost        string
+	DBPort        string
+	DBName        string
+	DBUser        string
+	DBPassword    string
+	DBSSLMode     string
+	MaxConns      int32
+	MinConns      int32
+	RedisHost     string
+	RedisPort     string
+	RedisPassword string
+	RedisDB       int
+
 	GoogleClientID     string
 	PasetoV4PrivateKey string
 	PasetoV4PublicKey  string
 	AccessTokenTTL     time.Duration
 	RefreshTokenTTL    time.Duration
+	PasetoPublicKeyIAT time.Time
 	MachineID          int64
 	AccessTokenKID     string
 	RefreshTokenKID    string
-	PasetoPublicKeyIAT time.Time
-	RedisHost          string
-	RedisPort          string
-	RedisPassword      string
-	RedisDB            int
 }
 
 func loadConfig() config {
 	accessTTLMinutes := getEnvInt(envAccessTTLMinutes, defaultAccessTTLMinutes)
 	refreshTTLDays := getEnvInt(envRefreshTTLDays, defaultRefreshTTLDays)
 	machineID := getEnvInt64(envMachineID, defaultMachineID)
-	if machineID < 0 || machineID > maxMachineID {
+	if machineID < 0 || machineID > maxMachineIDv1 {
 		machineID = defaultMachineID
 	}
 	accessTokenKID := getEnv(envAccessTokenKID, defaultAccessTokenKID)

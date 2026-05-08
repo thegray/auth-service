@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	reservedBits = 2 // 2 bits for future use
+	ReservedBits = 2 // 2 bits for future use
 	sequenceBits = 10
 	maxSequence  = -1 ^ (-1 << sequenceBits) // 1023
 )
@@ -41,5 +41,5 @@ func (g *Generator) NewID(nowMs int64) int64 {
 		g.lastMs = nowMs
 		g.seq = 0
 	}
-	return (nowMs << (reservedBits + sequenceBits)) | (g.reserved << sequenceBits) | g.seq
+	return (nowMs << (ReservedBits + sequenceBits)) | (g.reserved << sequenceBits) | g.seq
 }
