@@ -122,6 +122,31 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) Authenticate(c *gin.Context) {
+	if h.auth == nil {
+		respondError(c, http.StatusInternalServerError, errInternal)
+		return
+	}
+
+	token := bearerTokenFromHeader(c.GetHeader("Authorization"))
+	if token == "" {
+		respondError(c, http.StatusUnauthorized, errUnauthorized)
+		return
+	}
+
+	claims, err := h.auth.Authenticate(c.Request.Context(), token)
+	if err != nil {
+		h.handleError(c, err, "authentication failed")
+		return
+	}
+
+	respondJSON(c, http.StatusOK, gin.H{
+		"user_id": claims.UserID,
+		"email":   claims.Email,
+		"exp":     claims.ExpiresAt,
+	})
+}
+
 func (h *AuthHandler) handleError(c *gin.Context, err error, msg string) {
 	switch {
 	case errors.Is(err, auth.ErrInvalidCredential):

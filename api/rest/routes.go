@@ -43,6 +43,7 @@ func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
 	authRoutes.POST("/google/login", authHandler.GoogleLogin)
 	authRoutes.POST("/refresh", authHandler.Refresh)
 	authRoutes.POST("/logout", authHandler.Logout)
+	authRoutes.POST("/authenticate", authHandler.Authenticate)
 }
 
 func respondJSON(c *gin.Context, status int, payload any) {
