@@ -18,19 +18,27 @@ type PostgresRepository struct {
 	db    *gorm.DB
 	log   *applogger.Logger
 	ids   *idgenerator.Generator
-	clock func() time.Time
+	clock auth.Clock
 }
 
-func NewPostgres(db *gorm.DB, log *applogger.Logger, machineID int64) *PostgresRepository {
+func NewPostgres(db *gorm.DB, log *applogger.Logger, machineID int64, clock auth.Clock) *PostgresRepository {
 	if log == nil {
 		log = applogger.Wrap(zap.NewNop())
+	}
+	if clock == nil {
+		clock = auth.ServiceClock{}
 	}
 	return &PostgresRepository{
 		db:    db,
 		log:   log,
 		ids:   idgenerator.New(machineID),
-		clock: time.Now,
+		clock: clock,
 	}
+}
+
+// AutoMigrate runs the GORM automigration for all models managed by this repository.
+func (r *PostgresRepository) AutoMigrate() error {
+	return r.db.AutoMigrate(&pgUser{}, &pgIdentity{}, &pgRefreshToken{})
 }
 
 func (r *PostgresRepository) UpsertByProvider(ctx context.Context, provider auth.Provider, subject string, profile auth.ExternalProfile) (*auth.User, error) {
@@ -41,7 +49,7 @@ func (r *PostgresRepository) UpsertByProvider(ctx context.Context, provider auth
 
 	email := strings.TrimSpace(profile.Email)
 	displayName := strings.TrimSpace(profile.Name)
-	nowMs := r.clock().UTC().UnixMilli()
+	nowMs := r.clock.Now().UTC().UnixMilli()
 
 	var out *auth.User
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -170,7 +178,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int64) (*auth.User,
 }
 
 func (r *PostgresRepository) IncrementTokenVersion(ctx context.Context, userID int64) error {
-	nowMs := r.clock().UTC().UnixMilli()
+	nowMs := r.clock.Now().UTC().UnixMilli()
 	return r.db.WithContext(ctx).
 		Model(&pgUser{}).
 		Where("id = ?", userID).
@@ -186,7 +194,7 @@ func (r *PostgresRepository) Create(ctx context.Context, userID int64, tokenHash
 		return errors.New("token_hash is required")
 	}
 
-	nowMs := r.clock().UTC().UnixMilli()
+	nowMs := r.clock.Now().UTC().UnixMilli()
 	row := pgRefreshToken{
 		ID:        r.ids.NewID(nowMs),
 		UserID:    userID,

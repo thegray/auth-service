@@ -50,7 +50,14 @@ func runServer(ctx context.Context) error {
 		return err
 	}
 
-	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID)
+	clock := auth.ServiceClock{}
+	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID, clock)
+
+	serverLogger.Info("running database migrations")
+	if err := authRepository.AutoMigrate(); err != nil {
+		return fmt.Errorf("database migration failed: %w", err)
+	}
+
 	redisClient, err := infra.NewRedisClient(ctx, infra.RedisConfig{
 		Host:     cfg.RedisHost,
 		Port:     cfg.RedisPort,
@@ -82,6 +89,7 @@ func runServer(ctx context.Context) error {
 		accessIssuer,
 		refreshIssuer,
 		blacklist,
+		clock,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,
 	)
