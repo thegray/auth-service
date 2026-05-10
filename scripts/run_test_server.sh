@@ -1,7 +1,7 @@
 #!/bin/bash
 
-PRIVATE_KEY="private_1"
-PUBLIC_KEY="public_1"
+PRIVATE_KEY="k2XK5ZvU06iopt7xTGobruc9VM9ODJsjuWNij2v5w4Jn4xVsGiD7JXknnWe2BnVhHn190MKnnsXU/J8oNvppzw=="
+PUBLIC_KEY="Z+MVbBog+yV5J51ntgZ1YR59fdDCp57F1PyfKDb6ac8="
 
 # Inject Machine ID defaults to 0
 export MACHINE_ID=${1:-0}

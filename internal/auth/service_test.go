@@ -176,6 +176,12 @@ func (f *fakeRefreshIssuer) Verify(ctx context.Context, token string) (RefreshTo
 	return claims, nil
 }
 
+type fakeServiceClock struct{}
+
+func (fakeServiceClock) Now() time.Time {
+	return time.Now()
+}
+
 func TestService_LoginLogoutAuthenticate(t *testing.T) {
 	ctx := context.Background()
 
@@ -185,8 +191,9 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 	refreshTokens := &fakeRefreshTokens{}
 	refreshIssuer := &fakeRefreshIssuer{}
 	blacklist := &fakeBlacklist{}
+	clock := fakeServiceClock{}
 
-	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, blacklist, 5*time.Minute, 24*time.Hour)
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, blacklist, clock, 5*time.Minute, 24*time.Hour)
 
 	res, err := svc.LoginWithGoogle(ctx, "id-token")
 	if err != nil {
@@ -225,7 +232,7 @@ func TestService_LoginLogoutAuthenticate(t *testing.T) {
 }
 
 func TestService_Login_InvalidCredential(t *testing.T) {
-	svc := NewService(&fakeUsers{}, &fakeRefreshTokens{}, fakeVerifier{err: errors.New("nope")}, &fakeTokens{}, &fakeRefreshIssuer{}, &fakeBlacklist{}, time.Minute, time.Hour)
+	svc := NewService(&fakeUsers{}, &fakeRefreshTokens{}, fakeVerifier{err: errors.New("nope")}, &fakeTokens{}, &fakeRefreshIssuer{}, &fakeBlacklist{}, fakeServiceClock{}, time.Minute, time.Hour)
 	_, err := svc.LoginWithGoogle(context.Background(), "token")
 	if !errors.Is(err, ErrInvalidCredential) {
 		t.Fatalf("err = %v, want ErrInvalidCredential", err)
@@ -240,8 +247,9 @@ func TestService_Refresh_RotatesToken(t *testing.T) {
 	tokens := &fakeTokens{}
 	refreshTokens := &fakeRefreshTokens{}
 	refreshIssuer := &fakeRefreshIssuer{}
+	clock := fakeServiceClock{}
 
-	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, 5*time.Minute, 24*time.Hour)
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, clock, 5*time.Minute, 24*time.Hour)
 
 	loginRes, err := svc.LoginWithGoogle(ctx, "id-token")
 	if err != nil {
@@ -273,8 +281,9 @@ func TestService_Refresh_ChecksTokenVersion(t *testing.T) {
 	tokens := &fakeTokens{}
 	refreshTokens := &fakeRefreshTokens{}
 	refreshIssuer := &fakeRefreshIssuer{}
+	clock := fakeServiceClock{}
 
-	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, 5*time.Minute, 24*time.Hour)
+	svc := NewService(users, refreshTokens, verifier, tokens, refreshIssuer, nil, clock, 5*time.Minute, 24*time.Hour)
 
 	loginRes, err := svc.LoginWithGoogle(ctx, "id-token")
 	if err != nil {

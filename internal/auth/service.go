@@ -21,7 +21,7 @@ var (
 
 const (
 	defaultAccessTTL  = 15 * time.Minute
-	defaultRefreshTTL = 30 * 24 * time.Hour
+	defaultRefreshTTL = 1 * 24 * time.Hour
 )
 
 type Service struct {
@@ -36,11 +36,11 @@ type Service struct {
 	refreshTTL     time.Duration
 }
 
-type serviceClock struct{}
+type ServiceClock struct{}
 
-func (serviceClock) Now() time.Time { return time.Now() }
+func (ServiceClock) Now() time.Time { return time.Now() }
 
-func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, ttl, refreshTTL time.Duration) *Service {
+func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, clock Clock, ttl, refreshTTL time.Duration) *Service {
 	if ttl <= 0 {
 		ttl = defaultAccessTTL
 	}
@@ -48,7 +48,6 @@ func NewService(users UserRepository, refreshTokens RefreshTokenRepository, goog
 		refreshTTL = defaultRefreshTTL
 	}
 
-	var clock Clock = serviceClock{}
 	return &Service{
 		users:          users,
 		refreshTokens:  refreshTokens,
