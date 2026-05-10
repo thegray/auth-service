@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
+
+	"auth-service/internal/auth"
 
 	paseto "aidanwoods.dev/go-paseto"
-	"auth-service/internal/auth"
 )
 
 const (
@@ -58,7 +60,11 @@ func (i *PasetoV4PublicKIDIssuer) Issue(ctx context.Context, claims auth.Refresh
 	token := paseto.NewToken()
 	token.SetJti(strings.TrimSpace(claims.ID))
 	token.SetSubject(strings.TrimSpace(claims.Subject))
-	token.SetIssuedAt(claims.IssuedAt.UTC())
+
+	// Apply 1-minute leeway for clock skew
+	iat := claims.IssuedAt.UTC().Add(-1 * time.Minute)
+	token.SetIssuedAt(iat)
+	token.SetNotBefore(iat)
 	token.SetExpiration(claims.ExpiresAt.UTC())
 	token.SetFooter([]byte(i.kid))
 

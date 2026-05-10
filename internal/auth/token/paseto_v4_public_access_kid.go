@@ -3,9 +3,11 @@ package token
 import (
 	"context"
 	"strings"
+	"time"
+
+	"auth-service/internal/auth"
 
 	paseto "aidanwoods.dev/go-paseto"
-	"auth-service/internal/auth"
 )
 
 type PasetoV4PublicAccessKIDIssuer struct {
@@ -39,7 +41,11 @@ func (i *PasetoV4PublicAccessKIDIssuer) Issue(ctx context.Context, claims auth.T
 
 	token := paseto.NewToken()
 	token.SetJti(strings.TrimSpace(claims.TokenID))
-	token.SetIssuedAt(claims.IssuedAt.UTC())
+
+	// Apply 1-minute leeway for clock skew
+	iat := claims.IssuedAt.UTC().Add(-1 * time.Minute)
+	token.SetIssuedAt(iat)
+	token.SetNotBefore(iat)
 	token.SetExpiration(claims.ExpiresAt.UTC())
 	token.SetFooter([]byte(i.kid))
 
