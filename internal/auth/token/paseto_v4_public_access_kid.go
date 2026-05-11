@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"auth-service/internal/auth"
+	applogger "auth-service/pkg/logger"
 
 	paseto "aidanwoods.dev/go-paseto"
+	"go.uber.org/zap"
 )
 
 type PasetoV4PublicAccessKIDIssuer struct {
@@ -15,9 +17,14 @@ type PasetoV4PublicAccessKIDIssuer struct {
 	secret paseto.V4AsymmetricSecretKey
 	public paseto.V4AsymmetricPublicKey
 	parser paseto.Parser
+	log    *applogger.Logger
 }
 
-func NewPasetoV4PublicAccessKIDIssuer(kid, privateKeyBase64, publicKeyBase64 string) (*PasetoV4PublicAccessKIDIssuer, error) {
+func NewPasetoV4PublicAccessKIDIssuer(kid, privateKeyBase64, publicKeyBase64 string, log *applogger.Logger) (*PasetoV4PublicAccessKIDIssuer, error) {
+	if log == nil {
+		log = applogger.Wrap(zap.NewNop())
+	}
+
 	kid = strings.TrimSpace(kid)
 	if kid == "" {
 		return nil, ErrInvalidKey
@@ -33,6 +40,7 @@ func NewPasetoV4PublicAccessKIDIssuer(kid, privateKeyBase64, publicKeyBase64 str
 		secret: secret,
 		public: public,
 		parser: paseto.NewParserForValidNow(),
+		log:    log.Named("paseto-access-kid"),
 	}, nil
 }
 
@@ -64,6 +72,7 @@ func (i *PasetoV4PublicAccessKIDIssuer) Verify(ctx context.Context, token string
 
 	parsed, err := i.parser.ParseV4Public(i.public, token, nil)
 	if err != nil {
+		i.log.WarnCtx(ctx, "failed to parse v4 public access token", zap.Error(err))
 		return auth.TokenClaims{}, ErrInvalidToken
 	}
 	if i.kid != "" && string(parsed.Footer()) != i.kid {

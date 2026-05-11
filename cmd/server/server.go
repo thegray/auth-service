@@ -73,11 +73,11 @@ func runServer(ctx context.Context) error {
 
 	blacklist := authrepo.NewRedisBlacklist(redisClient, "")
 	googleVerifier := authrepo.NewGoogleVerifier(cfg.GoogleClientID)
-	accessIssuer, err := authtoken.NewPasetoV4PublicAccessKIDIssuer(cfg.AccessTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
+	accessIssuer, err := authtoken.NewPasetoV4PublicAccessKIDIssuer(cfg.AccessTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey, appLogger)
 	if err != nil {
 		return err
 	}
-	refreshIssuer, err := authtoken.NewPasetoV4PublicKIDIssuer(cfg.RefreshTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey)
+	refreshIssuer, err := authtoken.NewPasetoV4PublicKIDIssuer(cfg.RefreshTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey, appLogger)
 	if err != nil {
 		return err
 	}
@@ -92,6 +92,7 @@ func runServer(ctx context.Context) error {
 		clock,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,
+		appLogger,
 	)
 
 	engine := gin.New()
@@ -118,7 +119,7 @@ func runServer(ctx context.Context) error {
 	defer signal.Stop(stopCh)
 
 	go func() {
-		serverLogger.Sugar().Infow("server listening", "address", address)
+		serverLogger.Sugar().Infow("server starting", "address", address)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

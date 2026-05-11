@@ -30,7 +30,7 @@ func NewPostgres(db *gorm.DB, log *applogger.Logger, machineID int64, clock auth
 	}
 	return &PostgresRepository{
 		db:    db,
-		log:   log,
+		log:   log.Named("auth-pg"),
 		ids:   idgenerator.New(machineID),
 		clock: clock,
 	}
@@ -179,13 +179,17 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int64) (*auth.User,
 
 func (r *PostgresRepository) IncrementTokenVersion(ctx context.Context, userID int64) error {
 	nowMs := r.clock.Now().UTC().UnixMilli()
-	return r.db.WithContext(ctx).
+	if err := r.db.WithContext(ctx).
 		Model(&pgUser{}).
 		Where("id = ?", userID).
 		Updates(map[string]any{
 			"token_version": gorm.Expr("token_version + 1"),
 			"updated_at":    nowMs,
-		}).Error
+		}).Error; err != nil {
+		r.log.ErrorCtx(ctx, "failed to increment token version", zap.Int64("user_id", userID), zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func (r *PostgresRepository) Create(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {
@@ -202,11 +206,19 @@ func (r *PostgresRepository) Create(ctx context.Context, userID int64, tokenHash
 		ExpiresAt: expiresAt.UTC().UnixMilli(),
 		CreatedAt: nowMs,
 	}
-	return r.db.WithContext(ctx).Create(&row).Error
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		r.log.ErrorCtx(ctx, "failed to create refresh token record", zap.Int64("user_id", userID), zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func (r *PostgresRepository) DeleteByUser(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).Delete(&pgRefreshToken{}, "user_id = ?", userID).Error
+	if err := r.db.WithContext(ctx).Delete(&pgRefreshToken{}, "user_id = ?", userID).Error; err != nil {
+		r.log.ErrorCtx(ctx, "failed to delete refresh tokens by user", zap.Int64("user_id", userID), zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func (r *PostgresRepository) GetByHash(ctx context.Context, tokenHash string) (int64, time.Time, error) {
@@ -217,6 +229,9 @@ func (r *PostgresRepository) GetByHash(ctx context.Context, tokenHash string) (i
 
 	var row pgRefreshToken
 	if err := r.db.WithContext(ctx).First(&row, "token_hash = ?", tokenHash).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			r.log.ErrorCtx(ctx, "failed to get refresh token by hash", zap.Error(err))
+		}
 		return 0, time.Time{}, err
 	}
 	return row.UserID, time.UnixMilli(row.ExpiresAt).UTC(), nil

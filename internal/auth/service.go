@@ -10,7 +10,10 @@ import (
 	"strings"
 	"time"
 
+	applogger "auth-service/pkg/logger"
+
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 var (
@@ -34,13 +37,14 @@ type Service struct {
 	clock          Clock
 	ttl            time.Duration
 	refreshTTL     time.Duration
+	log            *applogger.Logger
 }
 
 type ServiceClock struct{}
 
 func (ServiceClock) Now() time.Time { return time.Now() }
 
-func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, clock Clock, ttl, refreshTTL time.Duration) *Service {
+func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, clock Clock, ttl, refreshTTL time.Duration, log *applogger.Logger) *Service {
 	if ttl <= 0 {
 		ttl = defaultAccessTTL
 	}
@@ -58,6 +62,7 @@ func NewService(users UserRepository, refreshTokens RefreshTokenRepository, goog
 		clock:          clock,
 		ttl:            ttl,
 		refreshTTL:     refreshTTL,
+		log:            log.Named("auth-svc"),
 	}
 }
 
@@ -72,12 +77,14 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 
 	subject, profile, err := s.googleVerifier.Verify(ctx, idToken)
 	if err != nil || strings.TrimSpace(subject) == "" {
+		s.log.ErrorCtx(ctx, "google id token verification failed", zap.Error(err))
 		return LoginResult{}, ErrInvalidCredential
 	}
 
 	now := s.clock.Now().UTC()
 	user, err := s.users.UpsertByProvider(ctx, ProviderGoogle, subject, profile)
 	if err != nil {
+		s.log.ErrorCtx(ctx, "failed to upsert user by provider", zap.Error(err))
 		return LoginResult{}, err
 	}
 
@@ -93,6 +100,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 
 	token, err := s.tokens.Issue(ctx, claims)
 	if err != nil {
+		s.log.ErrorCtx(ctx, "failed to issue access token", zap.Error(err))
 		return LoginResult{}, err
 	}
 
@@ -109,12 +117,14 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 
 		issued, err := s.refreshIssuer.Issue(ctx, refreshClaims)
 		if err != nil {
+			s.log.ErrorCtx(ctx, "failed to issue refresh token", zap.Int64("user_id", user.ID), zap.Error(err))
 			return LoginResult{}, err
 		}
 		refreshToken = issued
 
 		refreshHash := hashToken(refreshToken)
 		if err := s.refreshTokens.Create(ctx, user.ID, refreshHash, refreshClaims.ExpiresAt); err != nil {
+			s.log.ErrorCtx(ctx, "failed to persist refresh token", zap.Int64("user_id", user.ID), zap.Error(err))
 			return LoginResult{}, err
 		}
 	}
@@ -131,19 +141,23 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginRes
 func (s *Service) Authenticate(ctx context.Context, token string) (TokenClaims, error) {
 	claims, err := s.tokens.Verify(ctx, token)
 	if err != nil {
+		s.log.WarnCtx(ctx, "token verification failed", zap.Error(err))
 		return TokenClaims{}, ErrUnauthorized
 	}
 
 	if !claims.ExpiresAt.IsZero() && s.clock.Now().After(claims.ExpiresAt) {
+		s.log.WarnCtx(ctx, "token expired", zap.String("jti", claims.TokenID), zap.Time("expires_at", claims.ExpiresAt))
 		return TokenClaims{}, ErrUnauthorized
 	}
 
 	if s.blacklist != nil && strings.TrimSpace(claims.TokenID) != "" {
 		revoked, err := s.blacklist.IsRevoked(ctx, claims.TokenID)
 		if err != nil {
+			s.log.ErrorCtx(ctx, "failed to check blacklist", zap.String("jti", claims.TokenID), zap.Error(err))
 			return TokenClaims{}, err
 		}
 		if revoked {
+			s.log.WarnCtx(ctx, "token revoked", zap.String("jti", claims.TokenID))
 			return TokenClaims{}, ErrTokenRevoked
 		}
 	}
@@ -159,23 +173,27 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 
 	claims, err := s.tokens.Verify(ctx, token)
 	if err != nil {
+		s.log.WarnCtx(ctx, "logout attempt with invalid token", zap.Error(err))
 		return ErrUnauthorized
 	}
 
 	// Invalidate all tokens for this user going forward.
 	if err := s.users.IncrementTokenVersion(ctx, claims.UserID); err != nil {
+		s.log.ErrorCtx(ctx, "failed to increment token version during logout", zap.Int64("user_id", claims.UserID), zap.Error(err))
 		return err
 	}
 
 	// Drop persisted refresh tokens for this user (stateful sessions).
 	if s.refreshTokens != nil {
 		if err := s.refreshTokens.DeleteByUser(ctx, claims.UserID); err != nil {
+			s.log.ErrorCtx(ctx, "failed to delete refresh tokens during logout", zap.Int64("user_id", claims.UserID), zap.Error(err))
 			return err
 		}
 	}
 
 	if s.blacklist != nil && strings.TrimSpace(claims.TokenID) != "" {
 		if err := s.blacklist.Revoke(ctx, claims.TokenID, claims.ExpiresAt); err != nil {
+			s.log.ErrorCtx(ctx, "failed to blacklist token during logout", zap.String("jti", claims.TokenID), zap.Error(err))
 			return err
 		}
 	}
@@ -201,20 +219,24 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 	now := s.clock.Now().UTC()
 	refreshClaims, err := s.refreshIssuer.Verify(ctx, refreshToken)
 	if err != nil {
+		s.log.WarnCtx(ctx, "refresh token verification failed", zap.Error(err))
 		return LoginResult{}, ErrUnauthorized
 	}
 	if !refreshClaims.ExpiresAt.IsZero() && now.After(refreshClaims.ExpiresAt) {
+		s.log.WarnCtx(ctx, "refresh token expired", zap.String("jti", refreshClaims.ID))
 		return LoginResult{}, ErrUnauthorized
 	}
 
 	userID, err := strconv.ParseInt(strings.TrimSpace(refreshClaims.Subject), 10, 64)
 	if err != nil || userID <= 0 {
+		s.log.ErrorCtx(ctx, "failed to parse userID from refresh token subject", zap.String("sub", refreshClaims.Subject), zap.Error(err))
 		return LoginResult{}, ErrUnauthorized
 	}
 
 	oldHash := hashToken(refreshToken)
 	dbUserID, expiresAt, err := s.refreshTokens.GetByHash(ctx, oldHash)
 	if err != nil || dbUserID != userID {
+		s.log.WarnCtx(ctx, "refresh token not found or userID mismatch", zap.Int64("token_user_id", userID), zap.Int64("db_user_id", dbUserID), zap.Error(err))
 		return LoginResult{}, ErrUnauthorized
 	}
 	if !expiresAt.IsZero() && now.After(expiresAt) {
@@ -224,12 +246,14 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
+		s.log.ErrorCtx(ctx, "failed to get user during refresh", zap.Int64("user_id", userID), zap.Error(err))
 		return LoginResult{}, ErrUnauthorized
 	}
 
 	// token_version check happens on refresh token, not access token.
 	if refreshClaims.Version != user.TokenVersion {
 		_ = s.refreshTokens.DeleteByHash(ctx, oldHash)
+		s.log.WarnCtx(ctx, "refresh token version mismatch", zap.Int64("user_id", userID), zap.Int("token_v", refreshClaims.Version), zap.Int("db_v", user.TokenVersion))
 		return LoginResult{}, ErrUnauthorized
 	}
 
@@ -243,6 +267,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 
 	accessToken, err := s.tokens.Issue(ctx, claims)
 	if err != nil {
+		s.log.ErrorCtx(ctx, "failed to issue access token during refresh", zap.Int64("user_id", userID), zap.Error(err))
 		return LoginResult{}, err
 	}
 
@@ -257,14 +282,17 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 	}
 	newRefreshToken, err := s.refreshIssuer.Issue(ctx, newRefreshClaims)
 	if err != nil {
+		s.log.ErrorCtx(ctx, "failed to issue new refresh token during rotation", zap.Int64("user_id", userID), zap.Error(err))
 		return LoginResult{}, err
 	}
 	newHash := hashToken(newRefreshToken)
 
 	if err := s.refreshTokens.DeleteByHash(ctx, oldHash); err != nil {
+		s.log.ErrorCtx(ctx, "failed to delete old refresh token hash", zap.Error(err))
 		return LoginResult{}, err
 	}
 	if err := s.refreshTokens.Create(ctx, user.ID, newHash, newRefreshClaims.ExpiresAt); err != nil {
+		s.log.ErrorCtx(ctx, "failed to create new refresh token hash", zap.Int64("user_id", userID), zap.Error(err))
 		return LoginResult{}, err
 	}
 
