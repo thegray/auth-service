@@ -92,8 +92,9 @@ func (s *Service) LoginWithGoogle(ctx context.Context, appID string, idToken str
 	}
 
 	refreshToken := ""
+	var refreshClaims auth.RefreshTokenClaims
 	if s.refreshTokens != nil && s.refreshIssuer != nil {
-		refreshClaims := auth.RefreshTokenClaims{
+		refreshClaims = auth.RefreshTokenClaims{
 			ID:        uuid.NewString(),
 			Subject:   fmt.Sprintf("%d", user.ID),
 			Version:   user.TokenVersion,
@@ -116,11 +117,16 @@ func (s *Service) LoginWithGoogle(ctx context.Context, appID string, idToken str
 		}
 	}
 
+	refreshExpiresAt := time.Time{}
+	if refreshToken != "" {
+		refreshExpiresAt = refreshClaims.ExpiresAt
+	}
 	return auth.LoginResult{
-		AccessToken:  token,
-		RefreshToken: refreshToken,
-		User:         user,
-		ExpiresAt:    claims.ExpiresAt,
+		AccessToken:      token,
+		RefreshToken:     refreshToken,
+		User:             user,
+		ExpiresAt:        claims.ExpiresAt,
+		RefreshExpiresAt: refreshExpiresAt,
 	}, nil
 }
 

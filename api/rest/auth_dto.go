@@ -8,11 +8,10 @@ type googleLoginRequest struct {
 }
 
 type googleLoginResponse struct {
-	TokenType    string           `json:"token_type"`
-	AccessToken  string           `json:"access_token"`
-	RefreshToken string           `json:"refresh_token"`
-	ExpiresAt    time.Time        `json:"expires_at"`
-	User         authUserResponse `json:"user"`
+	TokenType   string           `json:"token_type"`
+	AccessToken string           `json:"access_token"`
+	ExpiresAt   time.Time        `json:"expires_at"`
+	User        authUserResponse `json:"user"`
 }
 
 type authUserResponse struct {
@@ -21,14 +20,9 @@ type authUserResponse struct {
 	DisplayName string `json:"display_name"`
 }
 
-type refreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
 type refreshResponse struct {
-	TokenType    string           `json:"token_type"`
-	AccessToken  string           `json:"access_token"`
-	RefreshToken string           `json:"refresh_token"`
-	ExpiresAt    time.Time        `json:"expires_at"`
-	User         authUserResponse `json:"user"`
+	TokenType   string           `json:"token_type"`
+	AccessToken string           `json:"access_token"`
+	ExpiresAt   time.Time        `json:"expires_at"`
+	User        authUserResponse `json:"user"`
 }

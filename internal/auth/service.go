@@ -92,13 +92,13 @@ func (s *Service) Authenticate(ctx context.Context, token string) (TokenClaims, 
 	return claims, nil
 }
 
-func (s *Service) Logout(ctx context.Context, token string) error {
-	token = strings.TrimSpace(token)
-	if token == "" {
+func (s *Service) Logout(ctx context.Context, accessToken string, refreshToken string) error {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
 		return ErrUnauthorized
 	}
 
-	claims, err := s.tokens.Verify(ctx, token)
+	claims, err := s.tokens.Verify(ctx, accessToken)
 	if err != nil {
 		s.log.WarnCtx(ctx, "logout attempt with invalid token", zap.Error(err))
 		return ErrUnauthorized
@@ -110,10 +110,11 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 		return err
 	}
 
-	// Drop persisted refresh tokens for this user (stateful sessions).
-	if s.refreshTokens != nil {
-		if err := s.refreshTokens.DeleteByUser(ctx, claims.UserID); err != nil {
-			s.log.ErrorCtx(ctx, "failed to delete refresh tokens during logout", zap.Int64("user_id", claims.UserID), zap.Error(err))
+	// Delete the specific refresh token paired with this session.
+	if s.refreshTokens != nil && refreshToken != "" {
+		hash := hashToken(refreshToken)
+		if err := s.refreshTokens.DeleteByHash(ctx, hash); err != nil {
+			s.log.ErrorCtx(ctx, "failed to delete refresh token during logout", zap.Int64("user_id", claims.UserID), zap.Error(err))
 			return err
 		}
 	}
@@ -224,9 +225,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 	}
 
 	return LoginResult{
-		AccessToken:  accessToken,
-		RefreshToken: newRefreshToken,
-		User:         user,
-		ExpiresAt:    claims.ExpiresAt,
+		AccessToken:      accessToken,
+		RefreshToken:     newRefreshToken,
+		User:             user,
+		ExpiresAt:        claims.ExpiresAt,
+		RefreshExpiresAt: newRefreshClaims.ExpiresAt,
 	}, nil
 }

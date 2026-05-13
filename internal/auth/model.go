@@ -37,8 +37,9 @@ type RefreshTokenClaims struct {
 }
 
 type LoginResult struct {
-	AccessToken  string
-	RefreshToken string
-	User         *User
-	ExpiresAt    time.Time
+	AccessToken      string
+	RefreshToken     string
+	User             *User
+	ExpiresAt        time.Time
+	RefreshExpiresAt time.Time
 }

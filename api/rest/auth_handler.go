@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"auth-service/internal/auth"
 	"auth-service/internal/usecase/login"
@@ -19,6 +20,8 @@ const (
 	errInternal          = "internal error"
 	tokenTypeBearer      = "Bearer"
 	errUnauthorized      = "unauthorized"
+	refreshTokenCookie   = "refresh_token"
+	cookiePath           = "/api/v1/auth/"
 )
 
 type AuthHandler struct {
@@ -56,11 +59,15 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 		return
 	}
 
+	if result.RefreshToken != "" {
+		maxAge := int(time.Until(result.RefreshExpiresAt).Seconds())
+		c.SetCookie(refreshTokenCookie, result.RefreshToken, maxAge, cookiePath, "", true, true)
+	}
+
 	respondJSON(c, http.StatusOK, googleLoginResponse{
-		TokenType:    tokenTypeBearer,
-		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
-		ExpiresAt:    result.ExpiresAt,
+		TokenType:   tokenTypeBearer,
+		AccessToken: result.AccessToken,
+		ExpiresAt:   result.ExpiresAt,
 		User: authUserResponse{
 			ID:          result.User.ID,
 			Email:       result.User.Email,
@@ -75,17 +82,20 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	token := bearerTokenFromHeader(c.GetHeader("Authorization"))
-	if token == "" {
+	accessToken := bearerTokenFromHeader(c.GetHeader("Authorization"))
+	if accessToken == "" {
 		respondError(c, http.StatusUnauthorized, errUnauthorized)
 		return
 	}
 
-	if err := h.auth.Logout(c.Request.Context(), token); err != nil {
+	refreshToken, _ := c.Cookie(refreshTokenCookie)
+
+	if err := h.auth.Logout(c.Request.Context(), accessToken, refreshToken); err != nil {
 		h.handleError(c, err, "logout failed")
 		return
 	}
 
+	c.SetCookie(refreshTokenCookie, "", -1, cookiePath, "", true, true)
 	c.Status(http.StatusNoContent)
 }
 
@@ -95,27 +105,27 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	var req refreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, errInvalidRequest)
-		return
-	}
-	if strings.TrimSpace(req.RefreshToken) == "" {
+	refreshToken, err := c.Cookie(refreshTokenCookie)
+	if err != nil || strings.TrimSpace(refreshToken) == "" {
 		respondError(c, http.StatusBadRequest, errInvalidRequest)
 		return
 	}
 
-	result, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
+	result, err := h.auth.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
 		h.handleError(c, err, "refresh failed")
 		return
 	}
 
+	if result.RefreshToken != "" {
+		maxAge := int(time.Until(result.RefreshExpiresAt).Seconds())
+		c.SetCookie(refreshTokenCookie, result.RefreshToken, maxAge, cookiePath, "", true, true)
+	}
+
 	respondJSON(c, http.StatusOK, refreshResponse{
-		TokenType:    tokenTypeBearer,
-		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
-		ExpiresAt:    result.ExpiresAt,
+		TokenType:   tokenTypeBearer,
+		AccessToken: result.AccessToken,
+		ExpiresAt:   result.ExpiresAt,
 		User: authUserResponse{
 			ID:          result.User.ID,
 			Email:       result.User.Email,

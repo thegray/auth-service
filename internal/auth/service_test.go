@@ -224,7 +224,7 @@ func TestService_Logout_InvalidatesTokens(t *testing.T) {
 	svc := newTestService(users, refreshTokens, tokens, refreshIssuer, blacklist)
 
 	issued, _ := tokens.Issue(ctx, TokenClaims{UserID: 1, TokenID: "jti-1", ExpiresAt: time.Now().Add(5 * time.Minute)})
-	if err := svc.Logout(ctx, issued); err != nil {
+	if err := svc.Logout(ctx, issued, ""); err != nil {
 		t.Fatalf("Logout err = %v", err)
 	}
 	if _, ok := blacklist.revoked["jti-1"]; !ok {
@@ -238,7 +238,7 @@ func TestService_Logout_InvalidatesTokens(t *testing.T) {
 
 func TestService_Logout_InvalidToken(t *testing.T) {
 	svc := newTestService(&fakeUsers{}, &fakeRefreshTokens{}, &fakeTokens{}, &fakeRefreshIssuer{}, &fakeBlacklist{})
-	if err := svc.Logout(context.Background(), ""); !errors.Is(err, ErrUnauthorized) {
+	if err := svc.Logout(context.Background(), "", ""); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 }
