@@ -58,9 +58,10 @@ func runServer(ctx context.Context) error {
 	clock := auth.ServiceClock{}
 	authRepository := authrepo.NewPostgres(db, appLogger.Named("auth-db"), cfg.MachineID, clock)
 
-	serverLogger.Info("running database migrations")
+	// TODO: add proper migration
+	serverLogger.Info("running auth db migrations")
 	if err := authRepository.AutoMigrate(); err != nil {
-		return fmt.Errorf("database migration failed: %w", err)
+		return fmt.Errorf("auth db migration failed: %w", err)
 	}
 
 	redisClient, err := infra.NewRedisClient(ctx, infra.RedisConfig{
@@ -77,9 +78,14 @@ func runServer(ctx context.Context) error {
 	}()
 
 	appRepository := apprepo.NewPostgresAppRepository(db, redisClient)
+
+	// TODO: add proper migration
+	serverLogger.Info("running app db migrations")
 	if err := appRepository.AutoMigrate(); err != nil {
-		return fmt.Errorf("app migration failed: %w", err)
+		return fmt.Errorf("app db migration failed: %w", err)
 	}
+	// TODO: move seeder to script
+	serverLogger.Info("seeding app db")
 	if err := seedGoogleApp(ctx, appRepository, cfg.GoogleClientID, cfg.AppEnv, serverLogger); err != nil {
 		return err
 	}

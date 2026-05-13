@@ -39,7 +39,8 @@ func (r *PostgresAppRepository) GetByName(ctx context.Context, name string) (*ap
 }
 
 func (r *PostgresAppRepository) Create(ctx context.Context, a *app.App) error {
-	return r.db.WithContext(ctx).Create(fromDomain(a)).Error
+	row := fromDomain(a)
+	return r.db.WithContext(ctx).Create(&row).Error
 }
 
 func (r *PostgresAppRepository) GetClientID(ctx context.Context, id string, provider string) (string, error) {
