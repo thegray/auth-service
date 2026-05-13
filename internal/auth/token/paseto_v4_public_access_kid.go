@@ -17,7 +17,6 @@ type PasetoV4PublicAccessKIDIssuer struct {
 	kid    string
 	secret paseto.V4AsymmetricSecretKey
 	public paseto.V4AsymmetricPublicKey
-	parser paseto.Parser
 	log    *applogger.Logger
 }
 
@@ -40,7 +39,6 @@ func NewPasetoV4PublicAccessKIDIssuer(kid, privateKeyBase64, publicKeyBase64 str
 		kid:    kid,
 		secret: secret,
 		public: public,
-		parser: paseto.NewParserForValidNow(),
 		log:    log.Named("paseto-access-kid"),
 	}, nil
 }
@@ -71,7 +69,7 @@ func (i *PasetoV4PublicAccessKIDIssuer) Issue(ctx context.Context, claims auth.T
 func (i *PasetoV4PublicAccessKIDIssuer) Verify(ctx context.Context, token string) (auth.TokenClaims, error) {
 	_ = ctx
 
-	parsed, err := i.parser.ParseV4Public(i.public, token, nil)
+	parsed, err := paseto.NewParserForValidNow().ParseV4Public(i.public, token, nil)
 	if err != nil {
 		i.log.WarnCtx(ctx, "failed to parse v4 public access token", zap.Error(err))
 		return auth.TokenClaims{}, ErrInvalidToken
