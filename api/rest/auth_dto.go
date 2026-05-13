@@ -4,6 +4,7 @@ import "time"
 
 type googleLoginRequest struct {
 	IDToken string `json:"id_token"`
+	AppID   string `json:"app_id"`
 }
 
 type googleLoginResponse struct {

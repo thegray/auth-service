@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"auth-service/internal/auth"
+	"auth-service/internal/shared"
 	"auth-service/pkg/idgenerator"
 	applogger "auth-service/pkg/logger"
 
@@ -41,7 +42,7 @@ func (r *PostgresRepository) AutoMigrate() error {
 	return r.db.AutoMigrate(&pgUser{}, &pgIdentity{}, &pgRefreshToken{})
 }
 
-func (r *PostgresRepository) UpsertByProvider(ctx context.Context, provider auth.Provider, subject string, profile auth.ExternalProfile) (*auth.User, error) {
+func (r *PostgresRepository) UpsertByProvider(ctx context.Context, provider shared.Provider, subject string, profile shared.ExternalProfile) (*auth.User, error) {
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
 		return nil, errors.New("subject is required")

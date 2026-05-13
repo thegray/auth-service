@@ -28,23 +28,22 @@ const (
 )
 
 type Service struct {
-	users          UserRepository
-	refreshTokens  RefreshTokenRepository
-	googleVerifier GoogleIDTokenVerifier
-	tokens         TokenIssuer
-	refreshIssuer  RefreshTokenIssuer
-	blacklist      BlacklistStore
-	clock          Clock
-	ttl            time.Duration
-	refreshTTL     time.Duration
-	log            *applogger.Logger
+	users         UserRepository
+	refreshTokens RefreshTokenRepository
+	tokens        TokenIssuer
+	refreshIssuer RefreshTokenIssuer
+	blacklist     BlacklistStore
+	clock         Clock
+	ttl           time.Duration
+	refreshTTL    time.Duration
+	log           *applogger.Logger
 }
 
 type ServiceClock struct{}
 
 func (ServiceClock) Now() time.Time { return time.Now() }
 
-func NewService(users UserRepository, refreshTokens RefreshTokenRepository, googleVerifier GoogleIDTokenVerifier, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, clock Clock, ttl, refreshTTL time.Duration, log *applogger.Logger) *Service {
+func NewService(users UserRepository, refreshTokens RefreshTokenRepository, tokens TokenIssuer, refreshIssuer RefreshTokenIssuer, blacklist BlacklistStore, clock Clock, ttl, refreshTTL time.Duration, log *applogger.Logger) *Service {
 	if ttl <= 0 {
 		ttl = defaultAccessTTL
 	}
@@ -53,88 +52,16 @@ func NewService(users UserRepository, refreshTokens RefreshTokenRepository, goog
 	}
 
 	return &Service{
-		users:          users,
-		refreshTokens:  refreshTokens,
-		googleVerifier: googleVerifier,
-		tokens:         tokens,
-		refreshIssuer:  refreshIssuer,
-		blacklist:      blacklist,
-		clock:          clock,
-		ttl:            ttl,
-		refreshTTL:     refreshTTL,
-		log:            log.Named("auth-svc"),
+		users:         users,
+		refreshTokens: refreshTokens,
+		tokens:        tokens,
+		refreshIssuer: refreshIssuer,
+		blacklist:     blacklist,
+		clock:         clock,
+		ttl:           ttl,
+		refreshTTL:    refreshTTL,
+		log:           log.Named("auth-svc"),
 	}
-}
-
-func (s *Service) LoginWithGoogle(ctx context.Context, idToken string) (LoginResult, error) {
-	if strings.TrimSpace(idToken) == "" {
-		return LoginResult{}, ErrInvalidCredential
-	}
-
-	if s.googleVerifier == nil {
-		return LoginResult{}, ErrInvalidCredential
-	}
-
-	subject, profile, err := s.googleVerifier.Verify(ctx, idToken)
-	if err != nil || strings.TrimSpace(subject) == "" {
-		s.log.ErrorCtx(ctx, "google id token verification failed", zap.Error(err))
-		return LoginResult{}, ErrInvalidCredential
-	}
-
-	now := s.clock.Now().UTC()
-	user, err := s.users.UpsertByProvider(ctx, ProviderGoogle, subject, profile)
-	if err != nil {
-		s.log.ErrorCtx(ctx, "failed to upsert user by provider", zap.Error(err))
-		return LoginResult{}, err
-	}
-
-	claims := TokenClaims{
-		TokenID:         uuid.NewString(),
-		UserID:          user.ID,
-		Email:           user.Email,
-		IssuedAt:        now,
-		ExpiresAt:       now.Add(s.ttl),
-		Provider:        ProviderGoogle,
-		ProviderSubject: subject,
-	}
-
-	token, err := s.tokens.Issue(ctx, claims)
-	if err != nil {
-		s.log.ErrorCtx(ctx, "failed to issue access token", zap.Error(err))
-		return LoginResult{}, err
-	}
-
-	refreshToken := ""
-	if s.refreshTokens != nil && s.refreshIssuer != nil {
-		refreshClaims := RefreshTokenClaims{
-			ID:        uuid.NewString(),
-			Subject:   fmt.Sprintf("%d", user.ID),
-			Version:   user.TokenVersion,
-			Type:      "refresh",
-			IssuedAt:  now,
-			ExpiresAt: now.Add(s.refreshTTL),
-		}
-
-		issued, err := s.refreshIssuer.Issue(ctx, refreshClaims)
-		if err != nil {
-			s.log.ErrorCtx(ctx, "failed to issue refresh token", zap.Int64("user_id", user.ID), zap.Error(err))
-			return LoginResult{}, err
-		}
-		refreshToken = issued
-
-		refreshHash := hashToken(refreshToken)
-		if err := s.refreshTokens.Create(ctx, user.ID, refreshHash, refreshClaims.ExpiresAt); err != nil {
-			s.log.ErrorCtx(ctx, "failed to persist refresh token", zap.Int64("user_id", user.ID), zap.Error(err))
-			return LoginResult{}, err
-		}
-	}
-
-	return LoginResult{
-		AccessToken:  token,
-		RefreshToken: refreshToken,
-		User:         user,
-		ExpiresAt:    claims.ExpiresAt,
-	}, nil
 }
 
 // Authenticate verifies the token and checks revocation.

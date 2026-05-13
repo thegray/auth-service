@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"time"
+
+	"auth-service/internal/shared"
 )
 
 type Clock interface {
@@ -10,26 +12,9 @@ type Clock interface {
 }
 
 type UserRepository interface {
-	UpsertByProvider(ctx context.Context, provider Provider, subject string, profile ExternalProfile) (*User, error)
+	UpsertByProvider(ctx context.Context, provider shared.Provider, subject string, profile shared.ExternalProfile) (*User, error)
 	GetByID(ctx context.Context, id int64) (*User, error)
 	IncrementTokenVersion(ctx context.Context, userID int64) error
-}
-
-type ExternalProfile struct {
-	Email      string
-	Name       string
-	PictureURL string
-}
-
-// ExternalIdentityVerifier verifies an external login credential
-type ExternalIdentityVerifier interface {
-	Verify(ctx context.Context, credential string) (subject string, profile ExternalProfile, err error)
-}
-
-// GoogleIDTokenVerifier is provider-specific to keep Service dependencies explicit.
-// For now it's identical to ExternalIdentityVerifier (string in, subject/profile out).
-type GoogleIDTokenVerifier interface {
-	Verify(ctx context.Context, idToken string) (subject string, profile ExternalProfile, err error)
 }
 
 // TokenIssuer issues and verifies access tokens

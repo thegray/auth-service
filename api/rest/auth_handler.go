@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"auth-service/internal/auth"
+	"auth-service/internal/usecase/login"
 	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -21,19 +22,20 @@ const (
 )
 
 type AuthHandler struct {
-	auth *auth.Service
-	log  *applogger.Logger
+	auth  *auth.Service
+	login *login.Service
+	log   *applogger.Logger
 }
 
-func NewAuthHandler(authSvc *auth.Service, log *applogger.Logger) *AuthHandler {
+func NewAuthHandler(authSvc *auth.Service, loginSvc *login.Service, log *applogger.Logger) *AuthHandler {
 	if log == nil {
 		log = applogger.Wrap(zap.NewNop())
 	}
-	return &AuthHandler{auth: authSvc, log: log}
+	return &AuthHandler{auth: authSvc, login: loginSvc, log: log}
 }
 
 func (h *AuthHandler) GoogleLogin(c *gin.Context) {
-	if h.auth == nil {
+	if h.login == nil {
 		respondError(c, http.StatusInternalServerError, errInternal)
 		return
 	}
@@ -48,7 +50,7 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 		return
 	}
 
-	result, err := h.auth.LoginWithGoogle(c.Request.Context(), req.IDToken)
+	result, err := h.login.LoginWithGoogle(c.Request.Context(), req.AppID, req.IDToken)
 	if err != nil {
 		h.handleError(c, err, "google login failed")
 		return

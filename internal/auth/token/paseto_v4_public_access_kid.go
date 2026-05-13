@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"auth-service/internal/auth"
+	"auth-service/internal/shared"
 	applogger "auth-service/pkg/logger"
 
 	paseto "aidanwoods.dev/go-paseto"
@@ -116,7 +117,7 @@ func (i *PasetoV4PublicAccessKIDIssuer) Verify(ctx context.Context, token string
 		Email:           strings.TrimSpace(email),
 		IssuedAt:        issuedAt.UTC(),
 		ExpiresAt:       expiresAt.UTC(),
-		Provider:        auth.Provider(strings.TrimSpace(provider)),
+		Provider:        shared.Provider(strings.TrimSpace(provider)),
 		ProviderSubject: strings.TrimSpace(providerSubject),
 	}, nil
 }

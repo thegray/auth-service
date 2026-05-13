@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"auth-service/internal/auth"
+	"auth-service/internal/shared"
 )
 
 type pgUser struct {
@@ -39,7 +40,7 @@ type pgRefreshToken struct {
 
 func (pgRefreshToken) TableName() string { return "refresh_tokens" }
 
-func (u pgUser) toDomain(provider auth.Provider, providerSubject string, profile auth.ExternalProfile) *auth.User {
+func (u pgUser) toDomain(provider shared.Provider, providerSubject string, profile shared.ExternalProfile) *auth.User {
 	created := time.UnixMilli(u.CreatedAt).UTC()
 	updated := time.UnixMilli(u.UpdatedAt).UTC()
 	name := profile.Name

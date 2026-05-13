@@ -1,16 +1,13 @@
 package auth
 
-import "time"
-
-type Provider string
-
-const (
-	ProviderGoogle Provider = "google"
+import (
+	"auth-service/internal/shared"
+	"time"
 )
 
 type User struct {
 	ID              int64
-	Provider        Provider
+	Provider        shared.Provider
 	ProviderSubject string
 	Email           string
 	Name            string
@@ -26,7 +23,7 @@ type TokenClaims struct {
 	Email           string
 	IssuedAt        time.Time
 	ExpiresAt       time.Time
-	Provider        Provider
+	Provider        shared.Provider
 	ProviderSubject string
 }
 

@@ -11,14 +11,19 @@ import (
 	"time"
 
 	"auth-service/api/rest"
+	"auth-service/internal/app"
+	apprepo "auth-service/internal/app/repository"
 	"auth-service/internal/auth"
 	authrepo "auth-service/internal/auth/repository"
 	authtoken "auth-service/internal/auth/token"
 	"auth-service/internal/infra"
+	"auth-service/internal/token"
+	"auth-service/internal/usecase/login"
 	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
 func runServer(ctx context.Context) error {
@@ -71,8 +76,16 @@ func runServer(ctx context.Context) error {
 		_ = redisClient.Close()
 	}()
 
+	appRepository := apprepo.NewPostgresAppRepository(db, redisClient)
+	if err := appRepository.AutoMigrate(); err != nil {
+		return fmt.Errorf("app migration failed: %w", err)
+	}
+	if err := seedGoogleApp(ctx, appRepository, cfg.GoogleClientID, cfg.AppEnv, serverLogger); err != nil {
+		return err
+	}
+
 	blacklist := authrepo.NewRedisBlacklist(redisClient, "")
-	googleVerifier := authrepo.NewGoogleVerifier(cfg.GoogleClientID)
+	googleVerifier := token.NewVerifier(appRepository)
 	accessIssuer, err := authtoken.NewPasetoV4PublicAccessKIDIssuer(cfg.AccessTokenKID, cfg.PasetoV4PrivateKey, cfg.PasetoV4PublicKey, appLogger)
 	if err != nil {
 		return err
@@ -85,10 +98,21 @@ func runServer(ctx context.Context) error {
 	authService := auth.NewService(
 		authRepository,
 		authRepository,
-		googleVerifier,
 		accessIssuer,
 		refreshIssuer,
 		blacklist,
+		clock,
+		cfg.AccessTokenTTL,
+		cfg.RefreshTokenTTL,
+		appLogger,
+	)
+
+	loginUsecase := login.NewService(
+		googleVerifier,
+		authRepository,
+		authRepository,
+		accessIssuer,
+		refreshIssuer,
 		clock,
 		cfg.AccessTokenTTL,
 		cfg.RefreshTokenTTL,
@@ -100,6 +124,7 @@ func runServer(ctx context.Context) error {
 	engine.Use(applogger.GinMiddleware(appLogger.Named("http")))
 	rest.RegisterRoutes(engine, rest.Dependencies{
 		AuthService:           authService,
+		LoginUsecase:          loginUsecase,
 		Logger:                appLogger.Named("rest"),
 		PasetoPublicKeyBase64: cfg.PasetoV4PublicKey,
 		PasetoPublicKeyIAT:    cfg.PasetoPublicKeyIAT,
@@ -146,5 +171,33 @@ func runServer(ctx context.Context) error {
 	}
 
 	serverLogger.Info("server shutdown complete")
+	return nil
+}
+
+func seedGoogleApp(ctx context.Context, repo *apprepo.PostgresAppRepository, clientID, appEnv string, log *applogger.Logger) error {
+	if clientID == "" {
+		return nil
+	}
+	_, err := repo.GetByName(ctx, "google")
+	if err == nil {
+		return nil // already seeded
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("check google app: %w", err)
+	}
+	if appEnv == "" {
+		appEnv = "development"
+	}
+	seed := &app.App{
+		Name:     "google",
+		ClientID: clientID,
+		Provider: "google",
+		Status:   "active",
+		Env:      appEnv,
+	}
+	if err := repo.Create(ctx, seed); err != nil {
+		return fmt.Errorf("seed google app: %w", err)
+	}
+	log.Info("seeded google oauth app from environment")
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"auth-service/internal/auth"
+	"auth-service/internal/usecase/login"
 	applogger "auth-service/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ const (
 
 type Dependencies struct {
 	AuthService           *auth.Service
+	LoginUsecase          *login.Service
 	Logger                *applogger.Logger
 	PasetoPublicKeyBase64 string
 	PasetoPublicKeyIAT    time.Time
@@ -35,7 +37,7 @@ func RegisterRoutes(engine *gin.Engine, deps Dependencies) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	authHandler := NewAuthHandler(deps.AuthService, deps.Logger.Named("auth-handler"))
+	authHandler := NewAuthHandler(deps.AuthService, deps.LoginUsecase, deps.Logger.Named("auth-handler"))
 
 	v1 := engine.Group("/api/v1")
 
