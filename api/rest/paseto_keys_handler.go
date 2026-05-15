@@ -14,7 +14,6 @@ type PasetoKeysHandler struct {
 }
 
 func NewPasetoKeysHandler(publicKeyBase64 string, keyIssuedAt time.Time, kids []string) *PasetoKeysHandler {
-	// Build response once (keys are static for now).
 	seen := map[string]struct{}{}
 	keys := make([]pasetoKey, 0, len(kids))
 	for _, kid := range kids {

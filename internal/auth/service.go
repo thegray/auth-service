@@ -168,7 +168,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 		return LoginResult{}, ErrUnauthorized
 	}
 	if !expiresAt.IsZero() && now.After(expiresAt) {
-		_ = s.refreshTokens.DeleteByHash(ctx, oldHash)
+		err := s.refreshTokens.DeleteByHash(ctx, oldHash)
+		if err != nil {
+			s.log.ErrorCtx(ctx, "fail delete refresh token", zap.Int64("token_user_id", userID), zap.Int64("db_user_id", dbUserID), zap.Error(err))
+		}
 		return LoginResult{}, ErrUnauthorized
 	}
 
@@ -215,6 +218,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResult
 	}
 	newHash := hashToken(newRefreshToken)
 
+	// TODO: wrap in tx?
 	if err := s.refreshTokens.DeleteByHash(ctx, oldHash); err != nil {
 		s.log.ErrorCtx(ctx, "failed to delete old refresh token hash", zap.Error(err))
 		return LoginResult{}, err
